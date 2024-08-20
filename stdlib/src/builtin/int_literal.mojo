@@ -12,11 +12,25 @@
 # ===----------------------------------------------------------------------=== #
 """Implements the IntLiteral class."""
 
+from builtin._math import Ceilable, CeilDivable, Floorable, Truncable
+
 
 @value
 @nonmaterializable(Int)
 @register_passable("trivial")
-struct IntLiteral(Intable, Stringable, Boolable, EqualityComparable):
+struct IntLiteral(
+    Absable,
+    Boolable,
+    Ceilable,
+    CeilDivable,
+    Comparable,
+    Floorable,
+    Intable,
+    Roundable,
+    Stringable,
+    Truncable,
+    Indexer,
+):
     """This type represents a static integer literal value with
     infinite precision.  They can't be materialized at runtime and
     must be lowered to other integer types (like Int), but allow for
@@ -24,48 +38,28 @@ struct IntLiteral(Intable, Stringable, Boolable, EqualityComparable):
     precision integer types.
     """
 
-    var value: __mlir_type.`!kgen.int_literal`
+    alias _mlir_type = __mlir_type.`!kgen.int_literal`
+
+    var value: Self._mlir_type
     """The underlying storage for the integer value."""
 
-    alias _zero = IntLiteral(
-        __mlir_attr.`#kgen.int_literal<0> : !kgen.int_literal`
-    )
     alias _one = IntLiteral(
         __mlir_attr.`#kgen.int_literal<1> : !kgen.int_literal`
     )
 
     @always_inline("nodebug")
-    fn __init__() -> Self:
-        """Default constructor.
-
-        Returns:
-            The constructed Self object.
-        """
-        return Self._zero
+    fn __init__(inout self):
+        """Default constructor."""
+        self.value = __mlir_attr.`#kgen.int_literal<0> : !kgen.int_literal`
 
     @always_inline("nodebug")
-    fn __init__(value: __mlir_type.`!kgen.int_literal`) -> Self:
+    fn __init__(inout self, value: __mlir_type.`!kgen.int_literal`):
         """Construct IntLiteral from the given mlir !kgen.int_literal value.
 
         Args:
             value: The init value.
-
-        Returns:
-            The constructed IntLiteral object.
         """
-        return Self {value: value}
-
-    @always_inline("nodebug")
-    fn __init__(value: IntLiteral) -> Self:
-        """Construct IntLiteral from another one.
-
-        Args:
-            value: The init value.
-
-        Returns:
-            The constructed IntLiteral object.
-        """
-        return Self {value: value.value}
+        self.value = value
 
     @always_inline("nodebug")
     fn __int__(self) -> Int:
@@ -92,7 +86,7 @@ struct IntLiteral(Intable, Stringable, Boolable, EqualityComparable):
         Returns:
             The value as a string.
         """
-        return self
+        return str(Int(self))
 
     @always_inline("nodebug")
     fn __as_mlir_index(self) -> __mlir_type.index:
@@ -198,7 +192,7 @@ struct IntLiteral(Intable, Stringable, Boolable, EqualityComparable):
         Returns:
             False Bool value if the value is equal to 0 and True otherwise.
         """
-        return self != Self._zero
+        return self != Self()
 
     @always_inline("nodebug")
     fn __index__(self) -> Int:
@@ -226,7 +220,94 @@ struct IntLiteral(Intable, Stringable, Boolable, EqualityComparable):
         Returns:
             The -self value.
         """
-        return Self._zero - self
+        return Self() - self
+
+    @always_inline("nodebug")
+    fn __abs__(self) -> Self:
+        """Return the absolute value of the IntLiteral value.
+
+        Returns:
+            The absolute value.
+        """
+        if self >= 0:
+            return self
+        return -self
+
+    @always_inline("nodebug")
+    fn __ceil__(self) -> Self:
+        """Return the ceiling of the IntLiteral value, which is itself.
+
+        Returns:
+            The IntLiteral value itself.
+        """
+        return self
+
+    @always_inline("nodebug")
+    fn __floor__(self) -> Self:
+        """Return the floor of the IntLiteral value, which is itself.
+
+        Returns:
+            The IntLiteral value itself.
+        """
+        return self
+
+    @always_inline("nodebug")
+    fn __round__(self) -> Self:
+        """Return the rounded value of the IntLiteral value, which is itself.
+
+        Returns:
+            The IntLiteral value itself.
+        """
+        return self
+
+    @always_inline("nodebug")
+    fn __trunc__(self) -> Self:
+        """Return the truncated of the IntLiteral value, which is itself.
+
+        Returns:
+            The IntLiteral value itself.
+        """
+        return self
+
+    @always_inline("nodebug")
+    fn __divmod__(self, rhs: Self) -> Tuple[Self, Self]:
+        """Return the quotient and remainder of the division of self by rhs.
+
+        Args:
+            rhs: The value to divide on.
+
+        Returns:
+            The quotient and remainder of the division.
+        """
+        var quotient: Self = self.__floordiv__(rhs)
+        var remainder: Self = self - (quotient * rhs)
+        return quotient, remainder
+
+    @always_inline("nodebug")
+    fn __round__(self, ndigits: Int) -> Self:
+        """Return the rounded value of the IntLiteral value, which is itself.
+
+        Args:
+            ndigits: The number of digits to round to.
+
+        Returns:
+            The IntLiteral value itself if ndigits >= 0 else the rounded value.
+        """
+        if ndigits >= 0:
+            return self
+        alias one = __mlir_attr.`#kgen.int_literal<1> : !kgen.int_literal`
+        alias ten = __mlir_attr.`#kgen.int_literal<10> : !kgen.int_literal`
+        var multiplier = one
+        # TODO: Use IntLiteral.__pow__() when it's implemented.
+        for _ in range(-ndigits):
+            multiplier = __mlir_op.`kgen.int_literal.binop`[
+                oper = __mlir_attr.`#kgen<int_literal.binop_kind mul>`
+            ](multiplier, ten)
+        alias Pair = Tuple[Self, Self]
+        var mod: IntLiteral = self % Self(multiplier)
+        if mod * 2 >= multiplier:
+            mod -= multiplier
+        return self - mod
 
     @always_inline("nodebug")
     fn __invert__(self) -> Self:
@@ -235,7 +316,7 @@ struct IntLiteral(Intable, Stringable, Boolable, EqualityComparable):
         Returns:
             The ~self value.
         """
-        return self ^ (Self._zero - Self._one)
+        return self ^ (Self() - Self._one)
 
     @always_inline("nodebug")
     fn __add__(self, rhs: Self) -> Self:
@@ -285,6 +366,8 @@ struct IntLiteral(Intable, Stringable, Boolable, EqualityComparable):
             ](self.value, rhs.value)
         )
 
+    # TODO: implement __pow__
+
     @always_inline("nodebug")
     fn __floordiv__(self, rhs: Self) -> Self:
         """Return `self // rhs`.
@@ -295,9 +378,9 @@ struct IntLiteral(Intable, Stringable, Boolable, EqualityComparable):
         Returns:
             `self // rhs` value.
         """
-        if rhs == Self._zero:
+        if rhs == Self():
             # this should raise an exception.
-            return Self._zero
+            return Self()
         return Self(
             __mlir_op.`kgen.int_literal.binop`[
                 oper = __mlir_attr.`#kgen<int_literal.binop_kind floordiv>`
@@ -314,9 +397,9 @@ struct IntLiteral(Intable, Stringable, Boolable, EqualityComparable):
         Returns:
             The remainder of dividing self by rhs.
         """
-        if rhs == Self._zero:
+        if rhs == Self():
             # this should raise an exception.
-            return Self._zero
+            return Self()
         return Self(
             __mlir_op.`kgen.int_literal.binop`[
                 oper = __mlir_attr.`#kgen<int_literal.binop_kind mod>`
@@ -333,9 +416,9 @@ struct IntLiteral(Intable, Stringable, Boolable, EqualityComparable):
         Returns:
             `self << rhs`.
         """
-        if rhs < Self._zero:
+        if rhs < Self():
             # this should raise an exception.
-            return Self._zero
+            return Self()
         return Self(
             __mlir_op.`kgen.int_literal.binop`[
                 oper = __mlir_attr.`#kgen<int_literal.binop_kind lshift>`
@@ -352,9 +435,9 @@ struct IntLiteral(Intable, Stringable, Boolable, EqualityComparable):
         Returns:
             `self >> rhs`.
         """
-        if rhs < Self._zero:
+        if rhs < Self():
             # this should raise an exception.
-            return Self._zero
+            return Self()
         return Self(
             __mlir_op.`kgen.int_literal.binop`[
                 oper = __mlir_attr.`#kgen<int_literal.binop_kind rshift>`
@@ -544,7 +627,7 @@ struct IntLiteral(Intable, Stringable, Boolable, EqualityComparable):
         Returns:
             `value // self`.
         """
-        return self // value
+        return value // self
 
     @always_inline("nodebug")
     fn __rlshift__(self, value: Self) -> Self:

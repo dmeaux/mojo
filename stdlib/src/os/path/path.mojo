@@ -20,8 +20,9 @@ from os.path import isdir
 """
 
 from stat import S_ISDIR, S_ISLNK, S_ISREG
-from sys.info import has_neon, os_is_linux, os_is_macos, os_is_windows
+from sys import has_neon, os_is_linux, os_is_macos, os_is_windows
 
+from ..os import sep
 from .. import PathLike
 from .._linux_aarch64 import _lstat as _lstat_linux_arm
 from .._linux_aarch64 import _stat as _stat_linux_arm
@@ -29,6 +30,7 @@ from .._linux_x86 import _lstat as _lstat_linux_x86
 from .._linux_x86 import _stat as _stat_linux_x86
 from .._macos import _lstat as _lstat_macos
 from .._macos import _stat as _stat_macos
+from ..fstat import stat
 
 
 # ===----------------------------------------------------------------------=== #
@@ -91,7 +93,7 @@ fn isdir[pathlike: os.PathLike](path: pathlike) -> Bool:
     symbolic links, so both islink() and isdir() can be true for the same path.
 
     Parameters:
-      pathlike: The a type conforming to the os.PathLike trait.
+      pathlike: The type conforming to the os.PathLike trait.
 
     Args:
       path: The path to the directory.
@@ -131,7 +133,7 @@ fn isfile[pathlike: os.PathLike](path: pathlike) -> Bool:
     """Test whether a path is a regular file.
 
     Parameters:
-      pathlike: The a type conforming to the os.PathLike trait.
+      pathlike: The type conforming to the os.PathLike trait.
 
     Args:
       path: The path to the directory.
@@ -167,7 +169,7 @@ fn islink[pathlike: os.PathLike](path: pathlike) -> Bool:
     symbolic link.
 
     Parameters:
-      pathlike: The a type conforming to the os.PathLike trait.
+      pathlike: The type conforming to the os.PathLike trait.
 
     Args:
       path: The path to the directory.
@@ -204,7 +206,7 @@ fn exists[pathlike: os.PathLike](path: pathlike) -> Bool:
     """Return True if path exists.
 
     Parameters:
-      pathlike: The a type conforming to the os.PathLike trait.
+      pathlike: The type conforming to the os.PathLike trait.
 
     Args:
       path: The path to the directory.
@@ -241,7 +243,7 @@ fn lexists[pathlike: os.PathLike](path: pathlike) -> Bool:
     """Return True if path exists or is a broken symlink.
 
     Parameters:
-      pathlike: The a type conforming to the os.PathLike trait.
+      pathlike: The type conforming to the os.PathLike trait.
 
     Args:
       path: The path to the directory.
@@ -250,3 +252,91 @@ fn lexists[pathlike: os.PathLike](path: pathlike) -> Bool:
       Returns True if the path exists or is a broken symbolic link.
     """
     return exists(path.__fspath__())
+
+
+# ===----------------------------------------------------------------------=== #
+# getsize
+# ===----------------------------------------------------------------------=== #
+
+
+fn getsize(path: String) raises -> Int:
+    """Return the size, in bytes, of the specified path.
+
+    Args:
+      path: The path to the file.
+
+    Returns:
+      The size of the path in bytes.
+    """
+    return stat(path).st_size
+
+
+fn getsize[pathlike: os.PathLike](path: pathlike) raises -> Int:
+    """Return the size, in bytes, of the specified path.
+
+    Parameters:
+      pathlike: The type conforming to the os.PathLike trait.
+
+    Args:
+      path: The path to the file.
+
+    Returns:
+      The size of the path in bytes.
+    """
+    return getsize(path.__fspath__())
+
+
+# ===----------------------------------------------------------------------=== #
+# join
+# ===----------------------------------------------------------------------=== #
+
+
+fn join(path: String, *paths: String) -> String:
+    """Join two or more pathname components, inserting '/' as needed.
+    If any component is an absolute path, all previous path components
+    will be discarded.  An empty last part will result in a path that
+    ends with a separator.
+
+    Args:
+      path: The path to join.
+      paths: The paths to join.
+
+    Returns:
+      The joined path.
+    """
+    var joined_path = path
+
+    for cur_path in paths:
+        if cur_path[].startswith(sep):
+            joined_path = cur_path[]
+        elif not joined_path or path.endswith(sep):
+            joined_path += cur_path[]
+        else:
+            joined_path += sep + cur_path[]
+
+    return joined_path
+
+
+# TODO uncomment this when unpacking is supported
+# fn join[pathlike: os.PathLike](path: pathlike, *paths: pathlike) -> String:
+#     """Join two or more pathname components, inserting '/' as needed.
+#     If any component is an absolute path, all previous path components
+#     will be discarded.  An empty last part will result in a path that
+#     ends with a separator.
+
+#     Parameters:
+#       pathlike: The type conforming to the os.PathLike trait.
+
+#     Args:
+#       path: The path to join.
+#       paths: The paths to join.
+
+#     Returns:
+#       The joined path.
+#     """
+#     var paths_str= List[String]()
+
+#     for cur_path in paths:
+#         paths_str.append(cur_path[].__fspath__())
+
+#     return join(path.__fspath__(), *paths_str)

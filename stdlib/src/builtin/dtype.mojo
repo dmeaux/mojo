@@ -15,10 +15,10 @@
 These are Mojo built-ins, so you don't need to import them.
 """
 
-from collections.dict import KeyElement
-from sys.info import sizeof as _sizeof
+from collections import KeyElement
+from sys import sizeof as _sizeof
 
-from utils.loop import unroll
+from utils import unroll
 
 alias _mIsSigned = UInt8(1)
 alias _mIsInteger = UInt8(1 << 7)
@@ -27,7 +27,7 @@ alias _mIsFloat = UInt8(1 << 6)
 
 @value
 @register_passable("trivial")
-struct DType(Stringable, KeyElement):
+struct DType(Stringable, Representable, KeyElement):
     """Represents DType and provides methods for working with it."""
 
     alias type = __mlir_type.`!kgen.dtype`
@@ -127,6 +127,15 @@ struct DType(Stringable, KeyElement):
         return "<<unknown>>"
 
     @always_inline("nodebug")
+    fn __repr__(self) -> String:
+        """Gets the representation of the DType e.g. `"DType.float32"`.
+
+        Returns:
+            The representation of the dtype.
+        """
+        return "DType." + str(self)
+
+    @always_inline("nodebug")
     fn get_value(self) -> __mlir_type.`!kgen.dtype`:
         """Gets the associated internal kgen.dtype value.
 
@@ -142,7 +151,7 @@ struct DType(Stringable, KeyElement):
     @staticmethod
     fn _from_ui8(ui8: __mlir_type.`!pop.scalar<ui8>`) -> DType:
         return DType._from_ui8(
-            __mlir_op.`pop.cast_to_builtin`[_type = __mlir_type.`ui8`](ui8)
+            __mlir_op.`pop.cast_to_builtin`[_type = __mlir_type.ui8](ui8)
         )
 
     @always_inline("nodebug")
@@ -334,6 +343,24 @@ struct DType(Stringable, KeyElement):
         return self.isa[DType.index]()
 
     @always_inline("nodebug")
+    fn is_index32(self) -> Bool:
+        """Checks if this DType is Index and 32 bit.
+
+        Returns:
+            True if this DType is Index and 32 bit, False otherwise.
+        """
+        return self.is_index() and (self.sizeof() == DType.int32.sizeof())
+
+    @always_inline("nodebug")
+    fn is_index64(self) -> Bool:
+        """Checks if this DType is Index and 64 bit.
+
+        Returns:
+            True if this DType is Index and 64 bit, False otherwise.
+        """
+        return self.is_index() and (self.sizeof() == DType.int64.sizeof())
+
+    @always_inline("nodebug")
     fn is_address(self) -> Bool:
         """Checks if this DType is Address.
 
@@ -408,6 +435,17 @@ struct DType(Stringable, KeyElement):
                 UInt8(0).value,
             )
         )
+
+    @always_inline("nodebug")
+    fn is_half_float(self) -> Bool:
+        """Returns True if the type is a half-precision floating point type,
+        e.g. either fp16 or bf16.
+
+        Returns:
+            True if the type is a half-precision float, false otherwise..
+        """
+
+        return self.is_float16() or self.is_bfloat16()
 
     @always_inline("nodebug")
     fn is_numeric(self) -> Bool:
@@ -543,23 +581,16 @@ struct DType(Stringable, KeyElement):
             dtypes: A list of DTypes on which to do dispatch.
         """
         alias dtype_var = VariadicList[DType](dtypes)
-        var matched = False
 
         @parameter
-        @always_inline
-        fn _func[idx: Int]():
+        for idx in range(len(dtype_var)):
             alias dtype = dtype_var[idx]
             if self == dtype:
-                matched = True
                 return func[dtype]()
 
-        unroll[_func, len(dtype_var)]()
-
-        if not matched:
-            raise Error(
-                "dispatch_custom: dynamic_type does not match any dtype"
-                " parameters"
-            )
+        raise Error(
+            "dispatch_custom: dynamic_type does not match any dtype parameters"
+        )
 
     # ===----------------------------------------------------------------------===#
     # dispatch_arithmetic
@@ -608,6 +639,22 @@ fn _integral_type_of[type: DType]() -> DType:
         return DType.int64
 
     return type.invalid
+
+
+fn _scientific_notation_digits[type: DType]() -> StringLiteral:
+    """Get the number of digits as a StringLiteral for the scientific notation
+    representation of a float.
+    """
+    constrained[type.is_floating_point(), "expected floating point type"]()
+
+    @parameter
+    if type == DType.bfloat16 or type == DType.float16:
+        return "4"
+    elif type == DType.float32 or type == DType.tensor_float32:
+        return "8"
+    else:
+        constrained[type == DType.float64, "unknown floating point type"]()
+        return "16"
 
 
 # ===-------------------------------------------------------------------===#
@@ -679,7 +726,7 @@ fn _get_dtype_printf_format[type: DType]() -> StringLiteral:
         return _index_printf_format()
 
     elif type == DType.address:
-        return "%zx"
+        return "%p"
 
     elif type.is_floating_point():
         return "%.17g"
@@ -716,19 +763,13 @@ fn _get_runtime_dtype_size(type: DType) -> Int:
         DType.index,
         DType.address,
     )
-    var size = -1
 
     @parameter
-    @always_inline
-    fn func[idx: Int]():
+    for idx in range(len(type_list)):
         alias concrete_type = type_list[idx]
         if concrete_type == type:
-            size = sizeof[concrete_type]()
-            return
+            return sizeof[concrete_type]()
 
-    unroll[func, len(type_list)]()
+    abort("unable to get the dtype size of " + str(type))
 
-    if size == -1:
-        abort("unable to get the dtype size of " + str(type))
-
-    return size
+    return -1

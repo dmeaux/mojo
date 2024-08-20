@@ -17,8 +17,10 @@ from .index import (
     Index,
     product,
 )
-from .inlined_string import InlinedString
+from .inline_string import InlineString
 from .loop import unroll
-from .static_tuple import StaticTuple
+from .span import Span
+from .static_tuple import StaticTuple, InlineArray
 from .stringref import StringRef
+from .string_slice import StringSlice
 from .variant import Variant

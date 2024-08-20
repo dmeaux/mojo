@@ -14,6 +14,7 @@
 
 from .arg import argv
 from .debug import breakpointhook
+from ._io import stderr, stdout
 from .ffi import RTLD, DEFAULT_RTLD, DLHandle, external_call
 from .info import (
     is_x86,
@@ -61,9 +62,11 @@ from .intrinsics import (
     compressed_store,
     strided_load,
     strided_store,
+    _RegisterPackType,
 )
 from .param_env import (
     is_defined,
     env_get_int,
     env_get_string,
 )
+from .terminate import exit

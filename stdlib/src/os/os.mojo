@@ -20,14 +20,34 @@ from os import listdir
 """
 
 from collections import List
-from sys.info import os_is_linux, os_is_windows, triple_is_nvidia_cuda
+from sys import os_is_linux, os_is_windows, triple_is_nvidia_cuda
 
-from memory.unsafe import DTypePointer, Pointer
+from memory import (
+    DTypePointer,
+)
+from memory.unsafe_pointer import move_from_pointee
 
-from utils import StringRef
+from utils import StringRef, InlineArray
 
 from .path import isdir
 from .pathlike import PathLike
+
+# TODO move this to a more accurate location once nt/posix like modules are in stdlib
+alias sep = "\\" if os_is_windows() else "/"
+
+
+# ===----------------------------------------------------------------------=== #
+# SEEK Constants
+# ===----------------------------------------------------------------------=== #
+
+
+alias SEEK_SET: UInt8 = 0
+"""Seek from the beginning of the file."""
+alias SEEK_CUR: UInt8 = 1
+"""Seek from the current position."""
+alias SEEK_END: UInt8 = 2
+"""Seek from the end of the file."""
+
 
 # ===----------------------------------------------------------------------=== #
 # Utilities
@@ -35,7 +55,6 @@ from .pathlike import PathLike
 
 
 @value
-@register_passable("trivial")
 struct _dirent_linux:
     alias MAX_NAME_SIZE = 256
     var d_ino: Int64
@@ -46,12 +65,11 @@ struct _dirent_linux:
     """Length of the record."""
     var d_type: Int8
     """Type of file."""
-    var name: StaticTuple[Int8, Self.MAX_NAME_SIZE]
+    var name: InlineArray[Int8, Self.MAX_NAME_SIZE]
     """Name of entry."""
 
 
 @value
-@register_passable("trivial")
 struct _dirent_macos:
     alias MAX_NAME_SIZE = 1024
     var d_ino: Int64
@@ -64,13 +82,13 @@ struct _dirent_macos:
     """Length of the name."""
     var d_type: Int8
     """Type of file."""
-    var name: StaticTuple[Int8, Self.MAX_NAME_SIZE]
+    var name: InlineArray[Int8, Self.MAX_NAME_SIZE]
     """Name of entry."""
 
 
-fn _strnlen(ptr: Pointer[Int8], max: Int) -> Int:
+fn _strnlen(ptr: UnsafePointer[Int8], max: Int) -> Int:
     var len = 0
-    while len < max and ptr.load(len):
+    while len < max and move_from_pointee(ptr + len):
         len += 1
     return len
 
@@ -78,7 +96,7 @@ fn _strnlen(ptr: Pointer[Int8], max: Int) -> Int:
 struct _DirHandle:
     """Handle to an open directory descriptor opened via opendir."""
 
-    var _handle: Pointer[NoneType]
+    var _handle: UnsafePointer[NoneType]
 
     fn __init__(inout self, path: String) raises:
         """Construct the _DirHandle using the path provided.
@@ -93,8 +111,8 @@ struct _DirHandle:
         if not isdir(path):
             raise "the directory '" + path + "' does not exist"
 
-        self._handle = external_call["opendir", Pointer[NoneType]](
-            path._as_ptr()
+        self._handle = external_call["opendir", UnsafePointer[NoneType]](
+            path.unsafe_ptr()
         )
 
         if not self._handle:
@@ -126,13 +144,13 @@ struct _DirHandle:
         var res = List[String]()
 
         while True:
-            var ep = external_call["readdir", Pointer[_dirent_linux]](
+            var ep = external_call["readdir", UnsafePointer[_dirent_linux]](
                 self._handle
             )
             if not ep:
                 break
-            var name = ep.load().name
-            var name_ptr = Pointer.address_of(name).bitcast[Int8]()
+            var name = move_from_pointee(ep).name
+            var name_ptr = UnsafePointer.address_of(name).bitcast[Int8]()
             var name_str = StringRef(
                 name_ptr, _strnlen(name_ptr, _dirent_linux.MAX_NAME_SIZE)
             )
@@ -151,13 +169,13 @@ struct _DirHandle:
         var res = List[String]()
 
         while True:
-            var ep = external_call["readdir", Pointer[_dirent_macos]](
+            var ep = external_call["readdir", UnsafePointer[_dirent_macos]](
                 self._handle
             )
             if not ep:
                 break
-            var name = ep.load().name
-            var name_ptr = Pointer.address_of(name).bitcast[Int8]()
+            var name = move_from_pointee(ep).name
+            var name_ptr = UnsafePointer.address_of(name).bitcast[Int8]()
             var name_str = StringRef(
                 name_ptr, _strnlen(name_ptr, _dirent_macos.MAX_NAME_SIZE)
             )
@@ -207,7 +225,7 @@ fn listdir[pathlike: os.PathLike](path: pathlike) raises -> List[String]:
 
 
 @always_inline("nodebug")
-fn abort[result: Movable = NoneType]() -> result:
+fn abort[result: AnyType = NoneType]() -> result:
     """Calls a target dependent trap instruction if available.
 
     Parameters:
@@ -219,12 +237,14 @@ fn abort[result: Movable = NoneType]() -> result:
 
     __mlir_op.`llvm.intr.trap`()
 
-    return AnyPointer[result]().take_value()
+    # We need to satisfy the noreturn checker.
+    while True:
+        pass
 
 
 @always_inline("nodebug")
 fn abort[
-    result: Movable = NoneType, *, stringable: Stringable
+    result: AnyType = NoneType, *, stringable: Stringable
 ](message: stringable) -> result:
     """Calls a target dependent trap instruction if available.
 
@@ -244,3 +264,130 @@ fn abort[
         print(message, flush=True)
 
     return abort[result]()
+
+
+# ===----------------------------------------------------------------------=== #
+# remove/unlink
+# ===----------------------------------------------------------------------=== #
+fn remove(path: String) raises:
+    """Removes the specified file.
+    If the path is a directory or it can not be deleted, an error is raised.
+    Absolute and relative paths are allowed, relative paths are resolved from cwd.
+
+    Args:
+      path: The path to the file.
+
+    """
+    var error = external_call["unlink", Int32](path.unsafe_ptr())
+
+    if error != 0:
+        # TODO get error message, the following code prints it
+        # var error_str = String("Something went wrong")
+        # _ = external_call["perror", UnsafePointer[NoneType]](error_str.unsafe_ptr())
+        # _ = error_str
+        raise Error("Can not remove file: " + path)
+
+
+fn remove[pathlike: os.PathLike](path: pathlike) raises:
+    """Removes the specified file.
+    If the path is a directory or it can not be deleted, an error is raised.
+    Absolute and relative paths are allowed, relative paths are resolved from cwd.
+
+    Parameters:
+      pathlike: The a type conforming to the os.PathLike trait.
+
+    Args:
+      path: The path to the file.
+
+    """
+    remove(path.__fspath__())
+
+
+fn unlink(path: String) raises:
+    """Removes the specified file.
+    If the path is a directory or it can not be deleted, an error is raised.
+    Absolute and relative paths are allowed, relative paths are resolved from cwd.
+
+    Args:
+      path: The path to the file.
+
+    """
+    remove(path)
+
+
+fn unlink[pathlike: os.PathLike](path: pathlike) raises:
+    """Removes the specified file.
+    If the path is a directory or it can not be deleted, an error is raised.
+    Absolute and relative paths are allowed, relative paths are resolved from cwd.
+
+    Parameters:
+      pathlike: The a type conforming to the os.PathLike trait.
+
+    Args:
+      path: The path to the file.
+
+    """
+    remove(path.__fspath__())
+
+
+# ===----------------------------------------------------------------------=== #
+# mkdir/rmdir
+# ===----------------------------------------------------------------------=== #
+
+
+fn mkdir(path: String, mode: Int = 0o777) raises:
+    """Creates a directory at the specified path.
+    If the directory can not be created an error is raised.
+    Absolute and relative paths are allowed, relative paths are resolved from cwd.
+
+    Args:
+      path: The path to the directory.
+      mode: The mode to create the directory with.
+    """
+
+    var error = external_call["mkdir", Int32](path.unsafe_ptr(), mode)
+    if error != 0:
+        raise Error("Can not create directory: " + path)
+
+
+fn mkdir[pathlike: os.PathLike](path: pathlike, mode: Int = 0o777) raises:
+    """Creates a directory at the specified path.
+    If the directory can not be created an error is raised.
+    Absolute and relative paths are allowed, relative paths are resolved from cwd.
+
+    Parameters:
+      pathlike: The a type conforming to the os.PathLike trait.
+
+    Args:
+      path: The path to the directory.
+      mode: The mode to create the directory with.
+    """
+
+    mkdir(path.__fspath__(), mode)
+
+
+fn rmdir(path: String) raises:
+    """Removes the specified directory.
+    If the path is not a directory or it can not be deleted, an error is raised.
+    Absolute and relative paths are allowed, relative paths are resolved from cwd.
+
+    Args:
+      path: The path to the directory.
+    """
+    var error = external_call["rmdir", Int32](path.unsafe_ptr())
+    if error != 0:
+        raise Error("Can not remove directory: " + path)
+
+
+fn rmdir[pathlike: os.PathLike](path: pathlike) raises:
+    """Removes the specified directory.
+    If the path is not a directory or it can not be deleted, an error is raised.
+    Absolute and relative paths are allowed, relative paths are resolved from cwd.
+
+    Parameters:
+      pathlike: The a type conforming to the os.PathLike trait.
+
+    Args:
+      path: The path to the directory.
+    """
+    rmdir(path.__fspath__())

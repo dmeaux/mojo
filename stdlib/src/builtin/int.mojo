@@ -15,13 +15,66 @@
 These are Mojo built-ins, so you don't need to import them.
 """
 
-from collections.dict import KeyElement
+from collections import KeyElement
 
+from builtin._math import Ceilable, CeilDivable, Floorable, Truncable
 from builtin.hash import _hash_simd
-from builtin.string import _calc_initial_buffer_size, _vec_fmt
+from builtin.string import _calc_initial_buffer_size
+from builtin.io import _snprintf
+from builtin.format_int import _try_write_int
+from builtin.simd import _format_scalar
 
 from utils._visualizers import lldb_formatter_wrapping_type
-from utils.index import StaticIntTuple
+from utils._format import Formattable, Formatter
+from utils import InlineArray
+
+# ===----------------------------------------------------------------------=== #
+#  Indexer
+# ===----------------------------------------------------------------------=== #
+
+
+trait Indexer:
+    """This trait denotes a type that can be used to index a container that
+    handles integral index values.
+
+    This solves the issue of being able to index data structures such as `List`
+    with the various integral types without being too broad and allowing types
+    that are coercible to `Int` (e.g. floating point values that have `__int__`
+    method). In contrast to `Intable`, types conforming to `Indexer` must be
+    convertible to `Int` in a lossless way.
+
+    Note that types conforming to `Indexer` are implicitly convertible to `Int`.
+    """
+
+    fn __index__(self) -> Int:
+        """Return the index value.
+
+        Returns:
+            The index value of the object.
+        """
+        ...
+
+
+# ===----------------------------------------------------------------------=== #
+#  index
+# ===----------------------------------------------------------------------=== #
+
+
+@always_inline("nodebug")
+fn index[T: Indexer](idx: T, /) -> Int:
+    """Returns the value of `__index__` for the given value.
+
+    Parameters:
+        T: A type conforming to the `Indexer` trait.
+
+    Args:
+        idx: The value.
+
+    Returns:
+        An `Int` respresenting the index value.
+    """
+    return idx.__index__()
+
 
 # ===----------------------------------------------------------------------=== #
 #  Intable
@@ -32,8 +85,8 @@ trait Intable:
     """The `Intable` trait describes a type that can be converted to an Int.
 
     Any type that conforms to `Intable` or
-    [`IntableRaising`](/mojo/stdlib/builtin/int.html#intableraising) works with
-    the built-in [`int()`](/mojo/stdlib/builtin/int.html#int-1) function.
+    [`IntableRaising`](/mojo/stdlib/builtin/int/IntableRaising) works with
+    the built-in [`int()`](/mojo/stdlib/builtin/int/int-function) function.
 
     This trait requires the type to implement the `__int__()` method. For
     example:
@@ -60,7 +113,7 @@ trait Intable:
     ```
 
     **Note:** If the `__int__()` method can raise an error, use the
-    [`IntableRaising`](/mojo/stdlib/builtin/int.html#intableraising) trait
+    [`IntableRaising`](/mojo/stdlib/builtin/int/intableraising) trait
     instead.
     """
 
@@ -78,9 +131,9 @@ trait IntableRaising:
     The `IntableRaising` trait describes a type can be converted to an Int, but
     the conversion might raise an error.
 
-    Any type that conforms to [`Intable`](/mojo/stdlib/builtin/int.html#intable)
+    Any type that conforms to [`Intable`](/mojo/stdlib/builtin/int/Intable)
     or `IntableRaising` works with the built-in
-    [`int()`](/mojo/stdlib/builtin/int.html#int-1) function.
+    [`int()`](/mojo/stdlib/builtin/int/int-function) function.
 
     This trait requires the type to implement the `__int__()` method, which can
     raise an error. For example:
@@ -160,6 +213,26 @@ fn int[T: IntableRaising](value: T) raises -> Int:
     return value.__int__()
 
 
+fn int(value: String, base: Int = 10) raises -> Int:
+    """Parses the given string as an integer in the given base and returns that value.
+
+    For example, `atol("19")` returns `19`. If the given string cannot be parsed
+    as an integer value, an error is raised. For example, `atol("hi")` raises an
+    error.
+
+    If base is 0 the the string is parsed as an Integer literal,
+    see: https://docs.python.org/3/reference/lexical_analysis.html#integers
+
+    Args:
+        value: A string to be parsed as an integer in the given base.
+        base: Base used for conversion, value must be between 2 and 36, or 0.
+
+    Returns:
+        An integer value that represents the string, or otherwise raises.
+    """
+    return atol(value, base)
+
+
 # ===----------------------------------------------------------------------=== #
 #  Int
 # ===----------------------------------------------------------------------=== #
@@ -168,7 +241,22 @@ fn int[T: IntableRaising](value: T) raises -> Int:
 @lldb_formatter_wrapping_type
 @value
 @register_passable("trivial")
-struct Int(Intable, Stringable, KeyElement, Boolable):
+struct Int(
+    Absable,
+    Boolable,
+    Ceilable,
+    CeilDivable,
+    Comparable,
+    Floorable,
+    Formattable,
+    Indexer,
+    Intable,
+    KeyElement,
+    Powable,
+    Roundable,
+    Stringable,
+    Truncable,
+):
     """This type represents an integer value."""
 
     var value: __mlir_type.index
@@ -181,115 +269,91 @@ struct Int(Intable, Stringable, KeyElement, Boolable):
     """Returns the minimum value of type."""
 
     @always_inline("nodebug")
-    fn __init__() -> Int:
-        """Default constructor.
-
-        Returns:
-            The constructed Int object.
-        """
-        return Self {
-            value: __mlir_op.`index.constant`[value = __mlir_attr.`0:index`]()
-        }
+    fn __init__(inout self):
+        """Default constructor that produces zero."""
+        self.value = __mlir_op.`index.constant`[value = __mlir_attr.`0:index`]()
 
     @always_inline("nodebug")
-    fn __init__(value: Int) -> Int:
-        """Construct Int from another Int value.
-
-        Args:
-            value: The init value.
-
-        Returns:
-            The constructed Int object.
-        """
-        return Self {value: value.value}
-
-    @always_inline("nodebug")
-    fn __init__(value: __mlir_type.index) -> Int:
+    fn __init__(inout self, value: __mlir_type.index):
         """Construct Int from the given index value.
 
         Args:
             value: The init value.
-
-        Returns:
-            The constructed Int object.
         """
-        return Self {value: value}
+        self.value = value
 
     @always_inline("nodebug")
-    fn __init__(value: __mlir_type.`!pop.scalar<si16>`) -> Int:
+    fn __init__(inout self, value: __mlir_type.`!pop.scalar<si16>`):
         """Construct Int from the given Int16 value.
 
         Args:
             value: The init value.
-
-        Returns:
-            The constructed Int object.
         """
-        return __mlir_op.`pop.cast_to_builtin`[_type = __mlir_type.index](
+        self.value = __mlir_op.`pop.cast_to_builtin`[_type = __mlir_type.index](
             __mlir_op.`pop.cast`[_type = __mlir_type.`!pop.scalar<index>`](
                 value
             )
         )
 
     @always_inline("nodebug")
-    fn __init__(value: __mlir_type.`!pop.scalar<si32>`) -> Int:
+    fn __init__(inout self, value: __mlir_type.`!pop.scalar<si32>`):
         """Construct Int from the given Int32 value.
 
         Args:
             value: The init value.
-
-        Returns:
-            The constructed Int object.
         """
-        return __mlir_op.`pop.cast_to_builtin`[_type = __mlir_type.index](
+        self.value = __mlir_op.`pop.cast_to_builtin`[_type = __mlir_type.index](
             __mlir_op.`pop.cast`[_type = __mlir_type.`!pop.scalar<index>`](
                 value
             )
         )
 
     @always_inline("nodebug")
-    fn __init__(value: __mlir_type.`!pop.scalar<si64>`) -> Int:
+    fn __init__(inout self, value: __mlir_type.`!pop.scalar<si64>`):
         """Construct Int from the given Int64 value.
 
         Args:
             value: The init value.
-
-        Returns:
-            The constructed Int object.
         """
-        return __mlir_op.`pop.cast_to_builtin`[_type = __mlir_type.index](
+        self.value = __mlir_op.`pop.cast_to_builtin`[_type = __mlir_type.index](
             __mlir_op.`pop.cast`[_type = __mlir_type.`!pop.scalar<index>`](
                 value
             )
         )
 
     @always_inline("nodebug")
-    fn __init__(value: __mlir_type.`!pop.scalar<index>`) -> Int:
+    fn __init__(inout self, value: __mlir_type.`!pop.scalar<index>`):
         """Construct Int from the given Index value.
 
         Args:
             value: The init value.
-
-        Returns:
-            The constructed Int object.
         """
-        return __mlir_op.`pop.cast_to_builtin`[_type = __mlir_type.index](
+        self.value = __mlir_op.`pop.cast_to_builtin`[_type = __mlir_type.index](
             __mlir_op.`pop.cast`[_type = __mlir_type.`!pop.scalar<index>`](
                 value
             )
         )
 
     @always_inline("nodebug")
-    fn __init__(value: IntLiteral) -> Int:
+    fn __init__(inout self, value: IntLiteral):
         """Construct Int from the given IntLiteral value.
 
         Args:
             value: The init value.
-
-        Returns:
-            The constructed Int object.
         """
-        return value.__int__()
+        self = value.__int__()
+
+    @always_inline("nodebug")
+    fn __init__[IndexerTy: Indexer](inout self, value: IndexerTy):
+        """Construct Int from the given Indexer value.
+
+        Parameters:
+            IndexerTy: A type conforming to Indexer.
+
+        Args:
+            value: The init value.
+        """
+        self = value.__index__()
 
     @always_inline("nodebug")
     fn __int__(self) -> Int:
@@ -306,12 +370,35 @@ struct Int(Intable, Stringable, KeyElement, Boolable):
         Returns:
             A string representation.
         """
-        var buf = String._buffer_type()
-        var initial_buffer_size = _calc_initial_buffer_size(self)
-        buf.reserve(initial_buffer_size)
-        buf.size += _vec_fmt(buf.data, initial_buffer_size, "%li", self.value)
-        buf.size += 1  # for the null terminator.
-        return buf ^
+
+        return String.format_sequence(self)
+
+    fn format_to(self, inout writer: Formatter):
+        """
+        Formats this integer to the provided formatter.
+
+        Args:
+            writer: The formatter to write to.
+        """
+
+        @parameter
+        if triple_is_nvidia_cuda():
+            var err = _try_write_int(writer, Int64(self))
+            if err:
+                abort(
+                    "unreachable: unexpected write int failure condition: "
+                    + str(err.value()[])
+                )
+        else:
+            _format_scalar(writer, Int64(self))
+
+    fn __repr__(self) -> String:
+        """Get the integer as a string. Returns the same `String` as `__str__`.
+
+        Returns:
+            A string representation.
+        """
+        return str(self)
 
     @always_inline("nodebug")
     fn __mlir_index__(self) -> __mlir_type.index:
@@ -451,6 +538,63 @@ struct Int(Intable, Stringable, KeyElement, Boolable):
         )
 
     @always_inline("nodebug")
+    fn __abs__(self) -> Self:
+        """Return the absolute value of the Int value.
+
+        Returns:
+            The absolute value.
+        """
+        return -self if self < 0 else self
+
+    @always_inline("nodebug")
+    fn __ceil__(self) -> Self:
+        """Return the ceiling of the Int value, which is itself.
+
+        Returns:
+            The Int value itself.
+        """
+        return self
+
+    @always_inline("nodebug")
+    fn __floor__(self) -> Self:
+        """Return the floor of the Int value, which is itself.
+
+        Returns:
+            The Int value itself.
+        """
+        return self
+
+    @always_inline("nodebug")
+    fn __round__(self) -> Self:
+        """Return the rounded value of the Int value, which is itself.
+
+        Returns:
+            The Int value itself.
+        """
+        return self
+
+    @always_inline("nodebug")
+    fn __round__(self, ndigits: Int) -> Self:
+        """Return the rounded value of the Int value, which is itself.
+        Args:
+            ndigits: The number of digits to round to.
+        Returns:
+            The Int value itself if ndigits >= 0 else the rounded value.
+        """
+        if ndigits >= 0:
+            return self
+        return self - (self % 10 ** -(ndigits))
+
+    @always_inline("nodebug")
+    fn __trunc__(self) -> Self:
+        """Return the truncated Int value, which is itself.
+
+        Returns:
+            The Int value itself.
+        """
+        return self
+
+    @always_inline("nodebug")
     fn __invert__(self) -> Int:
         """Return ~self.
 
@@ -576,47 +720,46 @@ struct Int(Intable, Stringable, KeyElement, Boolable):
         return mod
 
     @always_inline("nodebug")
-    fn _divmod(self, rhs: Int) -> StaticIntTuple[2]:
+    fn __divmod__(self, rhs: Int) -> Tuple[Int, Int]:
         """Computes both the quotient and remainder using integer division.
 
         Args:
             rhs: The value to divide on.
 
         Returns:
-            The quotient and remainder as a tuple `(self // rhs, self % rhs)`.
+            The quotient and remainder as a `Tuple(self // rhs, self % rhs)`.
         """
         if rhs == 0:
-            # this should raise an exception.
-            return StaticIntTuple[2](0, 0)
+            return 0, 0
         var div: Int = self._positive_div(rhs)
         if rhs > 0 and self > 0:
-            return StaticIntTuple[2](div, self._positive_rem(rhs))
+            return div, self._positive_rem(rhs)
         var mod = self - div * rhs
         if ((rhs < 0) ^ (self < 0)) and mod:
-            return StaticIntTuple[2](div - 1, mod + rhs)
-        return StaticIntTuple[2](div, mod)
+            return div - 1, mod + rhs
+        return div, mod
 
     @always_inline("nodebug")
-    fn __pow__(self, rhs: Int) -> Int:
-        """Return pow(self, rhs).
+    fn __pow__(self, exp: Self) -> Self:
+        """Return the value raised to the power of the given exponent.
 
         Computes the power of an integer using the Russian Peasant Method.
 
         Args:
-            rhs: The RHS value.
+            exp: The exponent value.
 
         Returns:
-            The value of `pow(self, rhs)`.
+            The value of `self` raised to the power of `exp`.
         """
-        if rhs < 0:
+        if exp < 0:
             # Not defined for Integers, this should raise an
             # exception.
             return 0
         var res: Int = 1
         var x = self
-        var n = rhs
+        var n = exp
         while n > 0:
-            if n&1 != 0:
+            if n & 1 != 0:
                 res *= x
             x *= x
             n >>= 1
@@ -945,4 +1088,5 @@ struct Int(Intable, Stringable, KeyElement, Boolable):
             uses. Its intended usage is for data structures. See the `hash`
             builtin documentation for more details.
         """
-        return _hash_simd(Scalar[DType.index](self))
+        # TODO(MOCO-636): switch to DType.index
+        return _hash_simd(Scalar[DType.int64](self))

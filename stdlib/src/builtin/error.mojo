@@ -15,10 +15,10 @@
 These are Mojo built-ins, so you don't need to import them.
 """
 
-from sys.info import alignof, sizeof
+from sys import alignof, sizeof
 
-from memory.memory import _free, memcmp, memcpy
-from memory.unsafe import DTypePointer
+from memory.memory import _free
+from memory import memcmp, memcpy, UnsafePointer
 
 # ===----------------------------------------------------------------------===#
 # Error
@@ -29,7 +29,7 @@ from memory.unsafe import DTypePointer
 struct Error(Stringable, Boolable):
     """This type represents an Error."""
 
-    var data: DTypePointer[DType.int8]
+    var data: UnsafePointer[UInt8]
     """A pointer to the beginning of the string data being referenced."""
 
     var loaded_length: Int
@@ -47,7 +47,7 @@ struct Error(Stringable, Boolable):
         Returns:
             The constructed Error object.
         """
-        return Error {data: DTypePointer[DType.int8](), loaded_length: 0}
+        return Error {data: UnsafePointer[UInt8](), loaded_length: 0}
 
     @always_inline("nodebug")
     fn __init__(value: StringLiteral) -> Error:
@@ -59,7 +59,11 @@ struct Error(Stringable, Boolable):
         Returns:
             The constructed Error object.
         """
-        return Error {data: value.data(), loaded_length: len(value)}
+        return Error {
+            # TODO: Remove cast once string UInt8 transition is complete.
+            data: value.unsafe_ptr().bitcast[UInt8](),
+            loaded_length: len(value),
+        }
 
     @always_inline("nodebug")
     fn __init__(src: String) -> Error:
@@ -72,13 +76,18 @@ struct Error(Stringable, Boolable):
             The constructed Error object.
         """
         var length = len(src)
-        var dest = Pointer[Int8].alloc(length + 1)
-        memcpy(dest, src._as_ptr(), length)
+        var dest = UnsafePointer[UInt8].alloc(length + 1)
+        memcpy(
+            dest=dest,
+            # TODO: Remove cast once string UInt8 transition is complete.
+            src=src.unsafe_ptr().bitcast[UInt8](),
+            count=length,
+        )
         dest[length] = 0
         return Error {data: dest, loaded_length: -length}
 
     @always_inline("nodebug")
-    fn __init__(borrowed src: StringRef) -> Error:
+    fn __init__(src: StringRef) -> Error:
         """Construct an Error object with a given string ref.
 
         Args:
@@ -88,8 +97,12 @@ struct Error(Stringable, Boolable):
             The constructed Error object.
         """
         var length = len(src)
-        var dest = DTypePointer[DType.int8].alloc(length + 1)
-        memcpy(dest, src.data, length)
+        var dest = UnsafePointer[UInt8].alloc(length + 1)
+        memcpy(
+            dest=dest,
+            src=src.unsafe_ptr(),
+            count=length,
+        )
         dest[length] = 0
         return Error {data: dest, loaded_length: -length}
 
@@ -107,7 +120,7 @@ struct Error(Stringable, Boolable):
         """
         if existing.loaded_length < 0:
             var length = -existing.loaded_length
-            var dest = Pointer[Int8].alloc(length + 1)
+            var dest = UnsafePointer[UInt8].alloc(length + 1)
             memcpy(dest, existing.data, length)
             dest[length] = 0
             return Error {data: dest, loaded_length: existing.loaded_length}
@@ -138,8 +151,9 @@ struct Error(Stringable, Boolable):
         Returns:
             A printable representation of the error message.
         """
-        return self.__str__()
+        return str(self)
 
+    @always_inline
     fn _message(self) -> String:
         """Converts the Error to string representation.
 

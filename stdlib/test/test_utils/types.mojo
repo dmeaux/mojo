@@ -1,7 +1,14 @@
 # ===----------------------------------------------------------------------=== #
+# Copyright (c) 2024, Modular Inc. All rights reserved.
 #
-# This file is Modular Inc proprietary.
+# Licensed under the Apache License v2.0 with LLVM Exceptions:
+# https://llvm.org/LICENSE.txt
 #
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 # ===----------------------------------------------------------------------=== #
 
 
@@ -15,13 +22,13 @@ struct MoveOnly[T: Movable](Movable):
     var data: T
     """Test data payload."""
 
-    fn __init__(inout self, i: T):
+    fn __init__(inout self, owned i: T):
         """Construct a MoveOnly providing the payload data.
 
         Args:
             i: The test data payload.
         """
-        self.data = i ^
+        self.data = i^
 
     fn __moveinit__(inout self, owned other: Self):
         """Move construct a MoveOnly from an existing variable.
@@ -29,7 +36,7 @@ struct MoveOnly[T: Movable](Movable):
         Args:
             other: The other instance that we copying the payload from.
         """
-        self.data = other.data ^
+        self.data = other.data^
 
 
 struct CopyCounter(CollectionElement):
@@ -56,11 +63,11 @@ struct MoveCounter[T: CollectionElement](CollectionElement):
     fn __init__(inout self, owned value: T):
         """Construct a new instance of this type. This initial move is not counted.
         """
-        self.value = value ^
+        self.value = value^
         self.move_count = 0
 
     fn __moveinit__(inout self, owned existing: Self):
-        self.value = existing.value ^
+        self.value = existing.value^
         self.move_count = existing.move_count + 1
 
     # TODO: This type should not be Copyable, but has to be to satisfy

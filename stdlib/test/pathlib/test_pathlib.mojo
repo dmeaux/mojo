@@ -11,26 +11,22 @@
 # limitations under the License.
 # ===----------------------------------------------------------------------=== #
 # REQUIRES: !windows
-# RUN: %mojo -debug-level full -D TEMP_FILE=%t %s
+# RUN: %mojo  -D TEMP_FILE=%t %s
 
-from pathlib import *
-from sys.param_env import env_get_string
+from pathlib import cwd, Path, DIR_SEPARATOR
+from sys import env_get_string
+from builtin._location import __source_location
 
-from testing import *
+from testing import assert_true, assert_false, assert_equal, assert_not_equal
 
 alias TEMP_FILE = env_get_string["TEMP_FILE"]()
 
 
 def test_cwd():
-    print("== test_cwd")
-
-    # CHECK-NOT: unable to query the current directory
     assert_true(str(cwd()).startswith("/"))
 
 
 def test_path():
-    print("== test_path")
-
     assert_true(str(Path() / "some" / "dir").endswith("/some/dir"))
 
     assert_equal(str(Path("/foo") / "bar" / "jar"), "/foo/bar/jar")
@@ -45,21 +41,17 @@ def test_path():
 
 
 def test_path_exists():
-    print("== test_path_exists")
-
     assert_true(Path(__source_location().file_name).exists(), "does not exist")
 
     assert_false((Path() / "this_path_does_not_exist.mojo").exists(), "exists")
 
 
 def test_path_isdir():
-    print("== test_path_isdir")
     assert_true(Path().is_dir())
     assert_false((Path() / "this_path_does_not_exist").is_dir())
 
 
 def test_path_isfile():
-    print("== test_path_isfile")
     assert_true(Path(__source_location().file_name).is_file())
     assert_false(Path("this/file/does/not/exist").is_file())
 

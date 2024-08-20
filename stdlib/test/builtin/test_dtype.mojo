@@ -10,16 +10,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ===----------------------------------------------------------------------=== #
-# RUN: %mojo -debug-level full %s
+# RUN: %mojo %s
 
 from collections import Set
 
-from testing import *
+from testing import assert_equal, assert_false, assert_true
 
 
 fn test_stringable() raises:
     assert_equal("float32", str(DType.float32))
     assert_equal("int64", str(DType.int64))
+
+
+fn test_representable() raises:
+    assert_equal(repr(DType.float32), "DType.float32")
+    assert_equal(repr(DType.int64), "DType.int64")
+    assert_equal(repr(DType.bool), "DType.bool")
+    assert_equal(repr(DType.address), "DType.address")
+    assert_equal(repr(DType.index), "DType.index")
 
 
 fn test_key_element() raises:
@@ -33,4 +41,5 @@ fn test_key_element() raises:
 
 fn main() raises:
     test_stringable()
+    test_representable()
     test_key_element()

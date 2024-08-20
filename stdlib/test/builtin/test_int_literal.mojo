@@ -10,80 +10,104 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ===----------------------------------------------------------------------=== #
-# RUN: %mojo -debug-level full %s | FileCheck %s
+# RUN: %mojo %s
+
+from testing import assert_equal
 
 
-# CHECK-LABEL: test_int
-fn test_int():
-    print("== test_int")
-    # CHECK: 3
-    print(3)
-    # CHECK: 6
-    print(3 + 3)
-
-    # CHECK: 3
-    print(4 - 1)
-    # CHECK: 5
-    print(6 - 1)
+def test_int():
+    assert_equal(3, 3)
+    assert_equal(3 + 3, 6)
+    assert_equal(4 - 1, 3)
+    assert_equal(6 - 1, 5)
 
 
-# CHECK-LABEL: test_floordiv
-fn test_floordiv():
-    print("== test_floordiv")
-
-    # CHECK: 1
-    print(2 // 2)
-
-    # CHECK: 0
-    print(2 // 3)
-
-    # CHECK: -1
-    print(2 // -2)
-
-    # CHECK: -50
-    print(99 // -2)
+def test_ceil():
+    assert_equal(IntLiteral.__ceil__(5), 5)
+    assert_equal(IntLiteral.__ceil__(0), 0)
+    assert_equal(IntLiteral.__ceil__(-5), -5)
 
 
-# CHECK-LABEL: test_mod
-fn test_mod():
-    print("== test_mod")
-
-    # CHECK: 0
-    print(99 % 1)
-    # CHECK: 0
-    print(99 % 3)
-    # CHECK: -1
-    print(99 % -2)
-    # CHECK: 3
-    print(99 % 8)
-    # CHECK: -5
-    print(99 % -8)
-    # CHECK: 0
-    print(2 % -1)
-    # CHECK: 0
-    print(2 % -2)
-    # CHECK: -1
-    print(3 % -2)
-    # CHECK: 1
-    print(-3 % 2)
+def test_floor():
+    assert_equal(IntLiteral.__floor__(5), 5)
+    assert_equal(IntLiteral.__floor__(0), 0)
+    assert_equal(IntLiteral.__floor__(-5), -5)
 
 
-# CHECK-LABEL: test_bit_width
-fn test_bit_width():
-    print("== test_bit_width")
-
-    # CHECK: 1
-    print((0)._bit_width())
-    # CHECK: 1
-    print((-1)._bit_width())
-    # CHECK: 9
-    print((255)._bit_width())
-    # CHECK: 9
-    print((-256)._bit_width())
+def test_round():
+    assert_equal(IntLiteral.__round__(5), 5)
+    assert_equal(IntLiteral.__round__(0), 0)
+    assert_equal(IntLiteral.__round__(-5), -5)
+    assert_equal(IntLiteral.__round__(5, 1), 5)
+    assert_equal(IntLiteral.__round__(0, 1), 0)
+    assert_equal(IntLiteral.__round__(-5, 1), -5)
+    assert_equal(IntLiteral.__round__(100, -2), 100)
 
 
-fn main():
+def test_trunc():
+    assert_equal(IntLiteral.__trunc__(5), 5)
+    assert_equal(IntLiteral.__trunc__(0), 0)
+    assert_equal(IntLiteral.__trunc__(-5), -5)
+
+
+def test_floordiv():
+    assert_equal(2 // 2, 1)
+    assert_equal(2 // 3, 0)
+    assert_equal(2 // -2, -1)
+    assert_equal(99 // -2, -50)
+
+
+def test_mod():
+    assert_equal(99 % 1, 0)
+    assert_equal(99 % 3, 0)
+    assert_equal(99 % -2, -1)
+    assert_equal(99 % 8, 3)
+    assert_equal(99 % -8, -5)
+    assert_equal(2 % -1, 0)
+    assert_equal(2 % -2, 0)
+    assert_equal(3 % -2, -1)
+    assert_equal(-3 % 2, 1)
+
+
+def test_bit_width():
+    assert_equal((0)._bit_width(), 1)
+    assert_equal((-1)._bit_width(), 1)
+    assert_equal((255)._bit_width(), 9)
+    assert_equal((-256)._bit_width(), 9)
+
+
+def test_abs():
+    assert_equal(abs(-5), 5)
+    assert_equal(abs(2), 2)
+    assert_equal(abs(0), 0)
+
+
+def test_indexer():
+    assert_equal(1, IntLiteral.__index__(1))
+    assert_equal(88, IntLiteral.__index__(88))
+
+
+def test_divmod():
+    t = IntLiteral.__divmod__(2, 2)
+    assert_equal(t[0], 1)
+    assert_equal(t[1], 0)
+    t = IntLiteral.__divmod__(2, 3)
+    assert_equal(t[0], 0)
+    assert_equal(t[1], 2)
+    t = IntLiteral.__divmod__(99, -2)
+    assert_equal(t[0], -50)
+    assert_equal(t[1], -1)
+
+
+def main():
     test_int()
+    test_ceil()
+    test_floor()
+    test_round()
+    test_trunc()
     test_floordiv()
     test_mod()
+    test_divmod()
     test_bit_width()
+    test_abs()
+    test_indexer()

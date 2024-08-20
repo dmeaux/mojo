@@ -1,17 +1,8 @@
 ---
 title: Modules and packages
-order: 5
 sidebar_position: 5
 sidebar_label: Modules and packages
 description: Learn how to package Mojo code for distribution and importing.
-css: /static/styles/page-navigation.css
-aliases:
-  - /mojo/manual/get-started/packages.html
-website:
-  open-graph:
-    image: /static/images/mojo-social-card.png
-  twitter-card:
-    image: /static/images/mojo-social-card.png
 ---
 
 Mojo provides a packaging system that allows you to organize and compile code
@@ -83,7 +74,7 @@ package, as described in the next section.
 
 :::note
 
-Mojo module may include a `main()` function and may also be
+A Mojo module may include a `main()` function and may also be
 executable, but that's generally not the practice and modules typically include
 APIs to be imported and used in other Mojo programs.
 

@@ -20,11 +20,11 @@ from memory import memcmp
 """
 
 
-from sys import llvm_intrinsic
-from sys.info import sizeof, triple_is_nvidia_cuda
+from sys import llvm_intrinsic, sizeof, triple_is_nvidia_cuda
 from builtin.dtype import _integral_type_of
 
-from .unsafe import AddressSpace, DTypePointer, Pointer, _GPUAddressSpace
+from memory.reference import AddressSpace, _GPUAddressSpace
+from .unsafe import DTypePointer, LegacyPointer
 
 # ===----------------------------------------------------------------------=== #
 # Utilities
@@ -49,19 +49,28 @@ fn _memcmp_impl(s1: DTypePointer, s2: __type_of(s1), count: Int) -> Int:
         for i in range(count):
             var s1i = s1[i]
             var s2i = s2[i]
-            var diff = s1i - s2i
-            if diff:
-                return 1 if diff > 0 else -1
+            if s1i != s2i:
+                return 1 if s1i > s2i else -1
         return 0
+
+    var iota = llvm_intrinsic[
+        "llvm.experimental.stepvector",
+        SIMD[DType.uint8, simd_width],
+        has_side_effect=False,
+    ]()
 
     var vector_end_simd = _align_down(count, simd_width)
     for i in range(0, vector_end_simd, simd_width):
         var s1i = s1.load[width=simd_width](i)
         var s2i = s2.load[width=simd_width](i)
-        var diff = s1i - s2i
-        if (diff != 0).reduce_or():
-            for j in range(simd_width):
-                return 1 if diff[j] > 0 else -1
+        var diff = s1i != s2i
+        if any(diff):
+            var index = int(
+                diff.select(
+                    iota, SIMD[DType.uint8, simd_width](255)
+                ).reduce_min()
+            )
+            return -1 if s1i[index] < s2i[index] else 1
 
     var last = count - simd_width
     if last <= 0:
@@ -69,10 +78,12 @@ fn _memcmp_impl(s1: DTypePointer, s2: __type_of(s1), count: Int) -> Int:
 
     var s1i = s1.load[width=simd_width](last)
     var s2i = s2.load[width=simd_width](last)
-    var diff = s1i - s2i
-    if (diff != 0).reduce_or():
-        for j in range(simd_width):
-            return 1 if diff[j] > 0 else -1
+    var diff = s1i != s2i
+    if any(diff):
+        var index = int(
+            diff.select(iota, SIMD[DType.uint8, simd_width](255)).reduce_min()
+        )
+        return -1 if s1i[index] < s2i[index] else 1
     return 0
 
 
@@ -113,10 +124,10 @@ fn memcmp(s1: DTypePointer, s2: __type_of(s1), count: Int) -> Int:
 
 @always_inline
 fn memcmp[
-    type: AnyRegType, address_space: AddressSpace
+    type: AnyTrivialRegType, address_space: AddressSpace
 ](
-    s1: Pointer[type, address_space],
-    s2: Pointer[type, address_space],
+    s1: LegacyPointer[type, address_space],
+    s2: LegacyPointer[type, address_space],
     count: Int,
 ) -> Int:
     """Compares two buffers. Both strings are assumed to be of the same length.
@@ -153,7 +164,8 @@ fn memcmp[
 # ===----------------------------------------------------------------------===#
 
 
-fn memcpy[count: Int](dest: Pointer, src: __type_of(dest)):
+@always_inline
+fn memcpy[count: Int](dest: LegacyPointer, src: __type_of(dest)):
     """Copies a memory area.
 
     Parameters:
@@ -171,7 +183,7 @@ fn memcpy[count: Int](dest: Pointer, src: __type_of(dest)):
     @parameter
     if n < 5:
 
-        @unroll
+        @parameter
         for i in range(n):
             dest_data[i] = src_data[i]
         return
@@ -207,6 +219,7 @@ fn memcpy[count: Int](dest: Pointer, src: __type_of(dest)):
         dest_dtype_ptr.store(i, src_dtype_ptr.load[width=1](i))
 
 
+@always_inline
 fn memcpy[count: Int](dest: DTypePointer, src: __type_of(dest)):
     """Copies a memory area.
 
@@ -220,19 +233,17 @@ fn memcpy[count: Int](dest: DTypePointer, src: __type_of(dest)):
     memcpy[count](dest.address, src.address)
 
 
-fn memcpy(dest: Pointer, src: __type_of(dest), count: Int):
+@always_inline
+fn memcpy(
+    dest_data: LegacyPointer[Int8, *_], src_data: __type_of(dest_data), n: Int
+):
     """Copies a memory area.
 
     Args:
-        dest: The destination pointer.
-        src: The source pointer.
-        count: The number of elements to copy.
+        dest_data: The destination pointer.
+        src_data: The source pointer.
+        n: The number of bytes to copy.
     """
-    var n = count * sizeof[dest.type]()
-
-    var dest_data = dest.bitcast[Int8]()
-    var src_data = src.bitcast[Int8]()
-
     if n < 5:
         if n == 0:
             return
@@ -271,8 +282,12 @@ fn memcpy(dest: Pointer, src: __type_of(dest), count: Int):
     #    )
     #    return
 
-    var dest_dtype_ptr = DTypePointer[DType.int8, dest.address_space](dest_data)
-    var src_dtype_ptr = DTypePointer[DType.int8, src.address_space](src_data)
+    var dest_dtype_ptr = DTypePointer[DType.int8, dest_data.address_space](
+        dest_data
+    )
+    var src_dtype_ptr = DTypePointer[DType.int8, src_data.address_space](
+        src_data
+    )
 
     # Copy in 32-byte chunks.
     alias chunk_size = 32
@@ -283,6 +298,33 @@ fn memcpy(dest: Pointer, src: __type_of(dest), count: Int):
         dest_dtype_ptr.store(i, src_dtype_ptr.load[width=1](i))
 
 
+@always_inline
+fn memcpy(dest: LegacyPointer, src: __type_of(dest), count: Int):
+    """Copies a memory area.
+
+    Args:
+        dest: The destination pointer.
+        src: The source pointer.
+        count: The number of elements to copy.
+    """
+    var n = count * sizeof[dest.type]()
+    memcpy(dest.bitcast[Int8](), src.bitcast[Int8](), n)
+
+
+@always_inline
+fn memcpy(dest: UnsafePointer, src: __type_of(dest), count: Int):
+    """Copies a memory area.
+
+    Args:
+        dest: The destination pointer.
+        src: The source pointer.
+        count: The number of elements to copy.
+    """
+    var n = count * sizeof[dest.type]()
+    memcpy(dest.bitcast[Int8]().address, src.bitcast[Int8]().address, n)
+
+
+@always_inline
 fn memcpy(dest: DTypePointer, src: __type_of(dest), count: Int):
     """Copies a memory area.
 
@@ -294,6 +336,27 @@ fn memcpy(dest: DTypePointer, src: __type_of(dest), count: Int):
     memcpy(dest.address, src.address, count)
 
 
+@always_inline
+fn memcpy[
+    dtype: DType, //
+](*, dest: UnsafePointer[Scalar[dtype]], src: __type_of(dest), count: Int):
+    """Copies a memory area.
+
+    Parameters:
+        dtype: *Inferred* The dtype of the data to copy.
+
+    Args:
+        dest: The destination pointer.
+        src: The source pointer.
+        count: The number of elements to copy (not bytes!).
+    """
+    memcpy(
+        dest=DTypePointer(dest),
+        src=DTypePointer(src),
+        count=count,
+    )
+
+
 # ===----------------------------------------------------------------------===#
 # memset
 # ===----------------------------------------------------------------------===#
@@ -302,7 +365,7 @@ fn memcpy(dest: DTypePointer, src: __type_of(dest), count: Int):
 @always_inline("nodebug")
 fn _memset_llvm[
     address_space: AddressSpace
-](ptr: Pointer[UInt8, address_space], value: UInt8, count: Int):
+](ptr: UnsafePointer[UInt8, address_space], value: UInt8, count: Int):
     llvm_intrinsic["llvm.memset", NoneType](
         ptr.address, value, count.value, False
     )
@@ -328,8 +391,8 @@ fn memset[
 
 @always_inline
 fn memset[
-    type: AnyRegType, address_space: AddressSpace
-](ptr: Pointer[type, address_space], value: UInt8, count: Int):
+    type: AnyTrivialRegType, address_space: AddressSpace
+](ptr: UnsafePointer[type, address_space], value: UInt8, count: Int):
     """Fills memory with the given value.
 
     Parameters:
@@ -342,6 +405,24 @@ fn memset[
         count: Number of elements to fill (in elements, not bytes).
     """
     _memset_llvm(ptr.bitcast[UInt8](), value, count * sizeof[type]())
+
+
+@always_inline
+fn memset[
+    type: AnyTrivialRegType, address_space: AddressSpace
+](ptr: LegacyPointer[type, address_space], value: UInt8, count: Int):
+    """Fills memory with the given value.
+
+    Parameters:
+        type: The element dtype.
+        address_space: The address space of the pointer.
+
+    Args:
+        ptr: Pointer to the beginning of the memory block to fill.
+        value: The value to fill with.
+        count: Number of elements to fill (in elements, not bytes).
+    """
+    _memset_llvm(ptr.bitcast[UInt8]().address, value, count * sizeof[type]())
 
 
 # ===----------------------------------------------------------------------===#
@@ -368,8 +449,25 @@ fn memset_zero[
 
 @always_inline
 fn memset_zero[
-    type: AnyRegType, address_space: AddressSpace
-](ptr: Pointer[type, address_space], count: Int):
+    type: AnyTrivialRegType, address_space: AddressSpace
+](ptr: UnsafePointer[type, address_space], count: Int):
+    """Fills memory with zeros.
+
+    Parameters:
+        type: The element type.
+        address_space: The address space of the pointer.
+
+    Args:
+        ptr: Pointer to the beginning of the memory block to fill.
+        count: Number of elements to fill (in elements, not bytes).
+    """
+    memset(ptr, 0, count)
+
+
+@always_inline
+fn memset_zero[
+    type: AnyTrivialRegType, address_space: AddressSpace
+](ptr: LegacyPointer[type, address_space], count: Int):
     """Fills memory with zeros.
 
     Parameters:
@@ -417,7 +515,7 @@ fn stack_allocation[
 @always_inline
 fn stack_allocation[
     count: Int,
-    type: AnyRegType,
+    type: AnyTrivialRegType,
     /,
     alignment: Int = 1,
     address_space: AddressSpace = AddressSpace.GENERIC,
@@ -439,16 +537,16 @@ fn stack_allocation[
     if triple_is_nvidia_cuda() and address_space == _GPUAddressSpace.SHARED:
         return __mlir_op.`pop.global_alloc`[
             count = count.value,
-            _type = Pointer[type, address_space].pointer_type,
+            _type = Pointer[type, address_space]._mlir_type,
             alignment = alignment.value,
-            address_space = address_space.value().value,
+            address_space = address_space._value.value,
         ]()
     else:
         return __mlir_op.`pop.stack_allocation`[
             count = count.value,
-            _type = Pointer[type, address_space].pointer_type,
+            _type = Pointer[type, address_space]._mlir_type,
             alignment = alignment.value,
-            address_space = address_space.value().value,
+            address_space = address_space._value.value,
         ]()
 
 
@@ -459,19 +557,23 @@ fn stack_allocation[
 
 @always_inline
 fn _malloc[
-    type: AnyRegType,
+    type: AnyTrivialRegType,
     /,
     *,
     address_space: AddressSpace = AddressSpace.GENERIC,
 ](size: Int, /, *, alignment: Int = -1) -> Pointer[type, address_space]:
     @parameter
     if triple_is_nvidia_cuda():
+        constrained[
+            address_space == AddressSpace.GENERIC,
+            "address space must be generic",
+        ]()
         return external_call["malloc", Pointer[NoneType, address_space]](
             size
         ).bitcast[type]()
     else:
         return __mlir_op.`pop.aligned_alloc`[
-            _type = Pointer[type, address_space].pointer_type
+            _type = Pointer[type, address_space]._mlir_type
         ](alignment.value, size.value)
 
 
@@ -481,9 +583,13 @@ fn _malloc[
 
 
 @always_inline
-fn _free(ptr: Pointer):
+fn _free(ptr: UnsafePointer):
     @parameter
     if triple_is_nvidia_cuda():
+        constrained[
+            ptr.address_space == AddressSpace.GENERIC,
+            "address space must be generic",
+        ]()
         external_call["free", NoneType](ptr.bitcast[NoneType]())
     else:
         __mlir_op.`pop.aligned_free`(ptr.address)
@@ -492,3 +598,8 @@ fn _free(ptr: Pointer):
 @always_inline
 fn _free(ptr: DTypePointer):
     _free(ptr.address)
+
+
+@always_inline
+fn _free(ptr: LegacyPointer):
+    _free(UnsafePointer(ptr.address))

@@ -13,7 +13,7 @@
 
 from time.time import _CTimeSpec
 
-from utils.index import StaticIntTuple
+from utils import InlineArray
 
 from .fstat import stat_result
 
@@ -30,7 +30,6 @@ alias blksize_t = Int32
 
 
 @value
-@register_passable("trivial")
 struct _c_stat(Stringable):
     var st_dev: dev_t  #  ID of device containing file
     var st_mode: mode_t  # Mode of file
@@ -49,29 +48,27 @@ struct _c_stat(Stringable):
     var st_flags: UInt32  # user defined flags for file
     var st_gen: UInt32  # file generation number
     var st_lspare: Int32  # RESERVED: DO NOT USE!
-    var st_qspare: StaticTuple[Int64, 2]  # RESERVED: DO NOT USE!
+    var st_qspare: InlineArray[Int64, 2]  # RESERVED: DO NOT USE!
 
-    fn __init__() -> Self:
-        return Self {
-            st_dev: 0,
-            st_mode: 0,
-            st_nlink: 0,
-            st_ino: 0,
-            st_uid: 0,
-            st_gid: 0,
-            st_rdev: 0,
-            st_atimespec: _CTimeSpec(),
-            st_mtimespec: _CTimeSpec(),
-            st_ctimespec: _CTimeSpec(),
-            st_birthtimespec: _CTimeSpec(),
-            st_size: 0,
-            st_blocks: 0,
-            st_blksize: 0,
-            st_flags: 0,
-            st_gen: 0,
-            st_lspare: 0,
-            st_qspare: StaticTuple[Int64, 2](0, 0),
-        }
+    fn __init__(inout self):
+        self.st_dev = 0
+        self.st_mode = 0
+        self.st_nlink = 0
+        self.st_ino = 0
+        self.st_uid = 0
+        self.st_gid = 0
+        self.st_rdev = 0
+        self.st_atimespec = _CTimeSpec()
+        self.st_mtimespec = _CTimeSpec()
+        self.st_ctimespec = _CTimeSpec()
+        self.st_birthtimespec = _CTimeSpec()
+        self.st_size = 0
+        self.st_blocks = 0
+        self.st_blksize = 0
+        self.st_flags = 0
+        self.st_gen = 0
+        self.st_lspare = 0
+        self.st_qspare = InlineArray[Int64, 2](0, 0)
 
     fn __str__(self) -> String:
         var res = String("{\n")
@@ -117,7 +114,7 @@ struct _c_stat(Stringable):
 fn _stat(path: String) raises -> _c_stat:
     var stat = _c_stat()
     var err = external_call["stat", Int32](
-        path._as_ptr(), Pointer.address_of(stat)
+        path.unsafe_ptr(), UnsafePointer.address_of(stat)
     )
     if err == -1:
         raise "unable to stat '" + path + "'"
@@ -128,7 +125,7 @@ fn _stat(path: String) raises -> _c_stat:
 fn _lstat(path: String) raises -> _c_stat:
     var stat = _c_stat()
     var err = external_call["lstat", Int32](
-        path._as_ptr(), Pointer.address_of(stat)
+        path.unsafe_ptr(), UnsafePointer.address_of(stat)
     )
     if err == -1:
         raise "unable to lstat '" + path + "'"

@@ -66,13 +66,24 @@ We provide a simple Bash script to build the standard library package and
 `test_utils` package that is used by the test suite.
 
 Just run `./stdlib/scripts/run-tests.sh` which will produce the necessary
-`mojopkg` files inside your `build` directory, and then run `lit -sv
-stdlib/test`.
+`mojopkg` files inside your `build` directory, after this is done, the script will
+run all the tests automatically.
 
 ```bash
 ./stdlib/scripts/run-tests.sh
+```
 
-lit -sv stdlib/test
+If you wish to run the unit tests that are in a specific test file, you can do
+so with
+
+```bash
+./stdlib/scripts/run-tests.sh ./stdlib/test/utils/test_span.mojo 
+```
+
+You can do the same for a directory with
+
+```bash
+./stdlib/scripts/run-tests.sh ./stdlib/test/utils
 ```
 
 All the tests should pass on the `nightly` branch with the nightly Mojo
@@ -112,15 +123,25 @@ Otherwise, CI will fail in its lint and formatting checks.  The `mojo` compiler
 provides a `format` command.  So, you can format your changes like so:
 
 ```bash
-mojo format <file1> <file2> ...
+mojo format ./
 ```
 
-You can also do this before submitting a pull request by running it on the
-relevant files changed compared to the remote:
+It is advised, to avoid forgetting, to set-up `pre-commit`, which will format
+your changes automatically at each commit, and will also ensure that you
+always have the latest linting tools applied.
+
+To do so, install pre-commit:
 
 ```bash
-git diff origin/main --name-only -- '*.mojo' | xargs mojo format
+pip install pre-commit
+pre-commit install
 ```
+
+and that's it!
+
+If you need to manually apply the `pre-commit`, for example, if you
+made a commit with the github UI, you can do `pre-commit run --all-files`,
+and it will apply the formatting to all Mojo files.
 
 You can also consider setting up your editor to automatically format
 Mojo files upon saving.
@@ -132,7 +153,7 @@ standard library, test it, and raise a PR.
 
 First, follow everything in the [prerequisites](#prerequisites).
 
-__IMPORTANT__ We'll be in the `mojo/stdlib` folder for this tutorial, check and
+**IMPORTANT** We'll be in the `mojo/stdlib` folder for this tutorial, check and
 make sure you're in that location if anything goes wrong:
 `cd [path-to-repo]/stdlib`
 
@@ -143,8 +164,8 @@ Let's try adding a small piece of functionality to `path.mojo`:
 ```mojo
 # ./stdlib/src/pathlib/path.mojo
 
-fn print_cwd() raises:
-    print("cwd:", cwd())
+fn get_cwd_message() raises -> String:
+    return "Your cwd is: " + cwd()
 ```
 
 And make sure you're importing it from the module root:
@@ -155,7 +176,7 @@ And make sure you're importing it from the module root:
 from .path import (
     DIR_SEPARATOR,
     cwd,
-    print_cwd,
+    get_cwd_message,
     Path,
 )
 ```
@@ -170,13 +191,13 @@ functionality before you write tests:
 from src import pathlib
 
 def main():
-    pathlib.print_cwd()
+    print(pathlib.get_cwd_message())
 ```
 
 Now when you run `mojo main.mojo` it'll reflect the changes:
 
 ```plaintext
-cwd: /Users/jack/src/mojo/stdlib
+Your cwd is: /Users/jack/src/mojo/stdlib
 ```
 
 ### A change with dependencies
@@ -192,10 +213,11 @@ Try adding this to `os.mojo`, which depends on what we just added to
 
 import pathlib
 
-fn print_paths() raises:
-    pathlib.print_cwd()
+fn get_cwd_and_paths() raises -> List[String]:
+    result = List[String]()
+    result.append(pathlib.get_cwd_message())
     for path in cwd().listdir():
-        print(path[])
+        result.append(str(path[]))
 ```
 
 This won't work because it's importing `pathlib` from the `stdlib.mojopkg` that
@@ -214,7 +236,8 @@ syntax:
 import os
 
 def main():
-    os.print_paths()
+    all_paths = os.get_cwd_and_paths()
+    print(all_paths.__str__())
 ```
 
 We also need to set the following environment variable that tells Mojo to
@@ -251,6 +274,10 @@ ls **/*.mojo | entr sh -c "./scripts/build-stdlib.sh && mojo main.mojo"
 Now, every time you save a Mojo file, it packages the standard library and
 runs `main.mojo`.
 
+**Note**: you should stop `entr` while doing commits, otherwise you could have
+some issues, this is because some pre-commit hooks use mojo scripts
+and will try to load the standard library while it is being compiled by `entr`.
+
 ### Running tests
 
 If you haven't already, follow the steps at:
@@ -258,30 +285,25 @@ If you haven't already, follow the steps at:
 
 ### Adding a test
 
-This will show you how the `FileCheck` utility works. First, turn it on by
-adding it to the end of line 7 in `./stdlib/test/pathlib/test_pathlib.mojo`:
+This section will show you how to add a unit test.
+Add the following at the top of `./stdlib/test/pathlib/test_pathlib.mojo`:
 
 ```mojo
-# RUN: %mojo -debug-level full -D TEMP_FILE=%t %s | FileCheck %s
+# RUN: %mojo %s
 ```
 
 Now we can add the test and force it to fail:
 
 ```mojo
-# CHECK-LABEL: test_print_cwd
-
-def test_print_cwd():
-    print("== test_print_cwd")
-
-    # CHECK: This will fail
-    print_cwd()
+def test_get_cwd_message():
+    assert_equal(get_cwd_message(), "Some random text")
 ```
 
 Don't forget to call it from `main()`:
 
 ```bash
 def main():
-    test_print_cwd()
+    test_get_cwd_message()
 ```
 
 Now, instead of testing all the modules, we can just test `pathlib`:
@@ -294,29 +316,20 @@ This will give you an error showing exactly what went wrong:
 
 ```plaintext
 /Users/jack/src/mojo-toy-2/stdlib/test/pathlib/test_pathlib.mojo:27:11:
-error: CHECK: expected string not found in input
-
-# CHECK: This will fail
-          ^
-<stdin>:1:18: note: scanning from here
-== test_print_cwd
-                 ^
+AssertionError: `left == right` comparison failed:
+   left: Your cwd is: /Users/jack/src/mojo/stdlib
+  right: Some random text
 ```
 
 Lets fix the test that we just added:
 
 ```mojo
-# CHECK-LABEL: test_print_cwd
-
-def test_print_cwd():
-    print("== test_print_cwd")
-
-    # CHECK: cwd:
-    print_cwd()
+def test_get_cwd_message():
+    assert_true(get_cwd_message().startswith("Your cwd is:"))
 ```
 
-We're now checking that `print_cwd` is prefixed with `cwd:` just like the
-function we added. Run the test again:
+We're now checking that `get_cwd_message` is prefixed with `Your cwd is:` just
+like the function we added. Run the test again:
 
 ```plaintext
 Testing Time: 0.65s
@@ -327,7 +340,8 @@ Total Discovered Tests: 1
 
 Success! Now we have a test for our new function.
 
-The last step is to [run mojo format](#formatting-changes) on all the files.
+The last step is to [run `mojo format`](#formatting-changes) on all the files.
+This can be skipped if `pre-commit` is installed.
 
 ### Raising a PR
 
@@ -342,4 +356,4 @@ library, test your changes, and raise a PR.
 
 If you're still having troubles make sure to reach out on
 [GitHub](https://github.com/modularml/mojo/discussions/new?category=general) or
-[Discord](modul.ar/discord)!
+[Discord](https://modul.ar/discord)!

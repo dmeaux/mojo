@@ -21,7 +21,7 @@ Also, before opening a new issue, take a moment to search through the already
 submitted issues to avoid creating duplicate issues for the maintainers to
 address.
 
-### Writing high-quality bugs
+### Writing high-quality bug descriptions
 
 We encourage you to provide as much information about the issue as practical.
 The more details you provide, the faster we can resolve the issue. The following
@@ -132,6 +132,44 @@ accepted. For example:
 - Changes if contributors are not responsive.
 - Adding an entire new module without going through the RFC/proposal process.
 
+### About pull request sizes
+
+We ask that contributors make pull requests as small as possible. When
+you are opening a pull request, check the number of lines modified in GitHub.
+The smaller the better (but don't exclude the tests or docstrings). If your
+pull request is over 100 lines, please try to split it into multiple pull
+requests. If you make them independant, it's even better as no synchronization
+will be needed for the merge.
+
+This guideline is here for the following reasons:
+
+- **Higher quality reviews**: It is much easier to spot a bug in a few lines
+than in 1000 lines.
+- **Faster overall review**: Reviewers, to approve a pull request, need to
+understand every line and understand how it fits into your overall change.
+They also need to go back and forth between files and functions to understand
+the flow of the code. This is exponentially hard as there are more lines in the code.
+- **Avoiding blocking changes that are valid**: In a huge pull request, it's
+likely that some changes are valid and some need to be reworked/discussed. If all
+the changes are in the same pull request, then the valid changes will be be blocked
+until all discussions have been resolved.
+- **Reducing the number of git conflicts**: Bigger pull request means slower reviews,
+thus means that the pull request will be open longer and will have more git conflicts
+to be resolved before being merged.
+- **Parallel processing**: All programmers like to parallelize. Well, reviewers also
+like to parallelize code reviews to merge your code faster. If you open two pull
+requests that are independent, then two reviewers will be able to work on your
+code.
+- **Finding the time for a code review**: Doing a code review often requires
+that the code is reviewed in one go, as it's hard to remember functions and code
+logic from one review session to another. Thus a big pull request will require
+the reviewer to allocate a big chunk of time to do the code review, which is not
+always possible and might delay the review and merge of your pull request
+for multiple days.
+
+Smaller pull requests means less work for the maintainers and faster reviews
+and merges for the contributors. It's a win-win!
+
 ### Proposals
 
 If you’re interested in making a significant change—one that doesn’t fall into
@@ -157,7 +195,8 @@ experience with the process.
 
 You can use a pull request to propose a change or bug fix to the Mojo Standard
 Library, Mojo examples, or Mojo documentation. This page gives an overview of
-the process, especially for first-time contributors.
+the process. For a more detailed walkthrough, see
+[How to contribute to the Mojo standard library: a step-by-step guide](https://www.modular.com/blog/how-to-contribute-to-mojo-standard-library-a-step-by-step-guide).
 
 **Note:** Pull requests should be submitted against the `nightly` branch,
 which represents the most recent nightly build.

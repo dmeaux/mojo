@@ -26,7 +26,7 @@ fn _int_max_value() -> Int:
 
 
 @always_inline("nodebug")
-fn _default_or[T: AnyRegType](value: T, default: Int) -> Int:
+fn _default_or[T: AnyTrivialRegType](value: T, default: Int) -> Int:
     # TODO: Handle `__index__` for other types when we have traits!
     @parameter
     if _mlirtype_is_eq[T, Int]():
@@ -40,7 +40,7 @@ fn _default_or[T: AnyRegType](value: T, default: Int) -> Int:
 
 
 @register_passable("trivial")
-struct Slice(Sized, Stringable, EqualityComparable):
+struct Slice(Stringable, EqualityComparable):
     """Represents a slice expression.
 
     Objects of this type are generated when slice syntax is used within square
@@ -63,22 +63,21 @@ struct Slice(Sized, Stringable, EqualityComparable):
     """The step increment value of the slice."""
 
     @always_inline("nodebug")
-    fn __init__(start: Int, end: Int) -> Self:
+    fn __init__(inout self, start: Int, end: Int):
         """Construct slice given the start and end values.
 
         Args:
             start: The start value.
             end: The end value.
-
-        Returns:
-            The constructed slice.
         """
-        return Self {start: start, end: end, step: 1}
+        self.start = start
+        self.end = end
+        self.step = 1
 
     @always_inline("nodebug")
     fn __init__[
-        T0: AnyRegType, T1: AnyRegType, T2: AnyRegType
-    ](start: T0, end: T1, step: T2) -> Self:
+        T0: AnyTrivialRegType, T1: AnyTrivialRegType, T2: AnyTrivialRegType
+    ](inout self, start: T0, end: T1, step: T2):
         """Construct slice given the start, end and step values.
 
         Parameters:
@@ -90,15 +89,10 @@ struct Slice(Sized, Stringable, EqualityComparable):
             start: The start value.
             end: The end value.
             step: The step value.
-
-        Returns:
-            The constructed slice.
         """
-        return Self {
-            start: _default_or(start, 0),
-            end: _default_or(end, _int_max_value()),
-            step: _default_or(step, 1),
-        }
+        self.start = _default_or(start, 0)
+        self.end = _default_or(end, _int_max_value())
+        self.step = _default_or(step, 1)
 
     fn __str__(self) -> String:
         """Gets the string representation of the span.
@@ -144,9 +138,11 @@ struct Slice(Sized, Stringable, EqualityComparable):
         """
         return not (self == other)
 
-    @always_inline("nodebug")
-    fn __len__(self) -> Int:
+    @always_inline
+    fn unsafe_indices(self) -> Int:
         """Return the length of the slice.
+
+        Only use this function if start/end is guaranteed to be not None.
 
         Returns:
             The length of the slice.
@@ -164,7 +160,7 @@ struct Slice(Sized, Stringable, EqualityComparable):
         Returns:
             The slice index.
         """
-        return self.start + idx * self.step
+        return self.start + index(idx) * self.step
 
     @always_inline("nodebug")
     fn _has_end(self) -> Bool:
@@ -201,7 +197,7 @@ fn slice(start: Int, end: Int) -> Slice:
 # TODO(30496): Modernize the slice type
 @always_inline("nodebug")
 fn slice[
-    T0: AnyRegType, T1: AnyRegType, T2: AnyRegType
+    T0: AnyTrivialRegType, T1: AnyTrivialRegType, T2: AnyTrivialRegType
 ](start: T0, end: T1, step: T2) -> Slice:
     """Construct a Slice given the start, end and step values.
 

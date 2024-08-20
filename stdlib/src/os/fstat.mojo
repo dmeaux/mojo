@@ -19,7 +19,7 @@ from os import stat
 ```
 """
 
-from sys.info import has_neon, os_is_linux, os_is_macos, os_is_windows
+from sys import has_neon, os_is_linux, os_is_macos, os_is_windows
 from time.time import _CTimeSpec
 
 from . import PathLike
@@ -115,7 +115,7 @@ struct stat_result(Stringable):
         st_rdev: Int,
         st_flags: Int,
     ):
-        """Intialize the stat_result structure.
+        """Initialize the stat_result structure.
 
         Args:
           st_mode: File mode: file type and file mode bits (permissions).

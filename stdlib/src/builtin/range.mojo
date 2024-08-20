@@ -16,13 +16,17 @@ These are Mojo built-ins, so you don't need to import them.
 """
 
 
-from python.object import PythonObject
+from python import PythonObject
+
+# FIXME(MOCO-658): Explicit conformance to these traits shouldn't be needed.
+from builtin._stubs import _IntIterable, _StridedIterable
 
 # ===----------------------------------------------------------------------=== #
 # Utilities
 # ===----------------------------------------------------------------------=== #
 
 
+# TODO: use math.ceildiv when open sourced.
 @always_inline
 fn _div_ceil_positive(numerator: Int, denominator: Int) -> Int:
     """Divides an integer by another integer, and round up to the nearest
@@ -44,8 +48,12 @@ fn _div_ceil_positive(numerator: Int, denominator: Int) -> Int:
 
 
 @always_inline
-fn _abs(x: Int) -> Int:
-    return x if x > 0 else -x
+fn _sign(x: Int) -> Int:
+    if x > 0:
+        return 1
+    if x < 0:
+        return -1
+    return 0
 
 
 # ===----------------------------------------------------------------------=== #
@@ -54,14 +62,14 @@ fn _abs(x: Int) -> Int:
 
 
 @register_passable("trivial")
-struct _ZeroStartingRange(Sized):
+struct _ZeroStartingRange(Sized, ReversibleRange, _IntIterable):
     var curr: Int
     var end: Int
 
     @always_inline("nodebug")
     fn __init__(inout self, end: Int):
-        self.curr = end
-        self.end = end
+        self.curr = max(0, end)
+        self.end = self.curr
 
     @always_inline("nodebug")
     fn __iter__(self) -> Self:
@@ -79,12 +87,16 @@ struct _ZeroStartingRange(Sized):
 
     @always_inline("nodebug")
     fn __getitem__(self, idx: Int) -> Int:
-        return idx
+        return index(idx)
+
+    @always_inline("nodebug")
+    fn __reversed__(self) -> _StridedRange:
+        return range(self.end - 1, -1, -1)
 
 
 @value
 @register_passable("trivial")
-struct _SequentialRange(Sized):
+struct _SequentialRange(Sized, ReversibleRange, _IntIterable):
     var start: Int
     var end: Int
 
@@ -100,11 +112,17 @@ struct _SequentialRange(Sized):
 
     @always_inline("nodebug")
     fn __len__(self) -> Int:
+        # FIXME(#38392):
+        # return max(0, self.end - self.start)
         return self.end - self.start if self.start < self.end else 0
 
     @always_inline("nodebug")
     fn __getitem__(self, idx: Int) -> Int:
-        return self.start + idx
+        return self.start + index(idx)
+
+    @always_inline("nodebug")
+    fn __reversed__(self) -> _StridedRange:
+        return range(self.end - 1, self.start - 1, -1)
 
 
 @value
@@ -132,7 +150,7 @@ struct _StridedRangeIterator(Sized):
 
 @value
 @register_passable("trivial")
-struct _StridedRange(Sized):
+struct _StridedRange(Sized, ReversibleRange, _StridedIterable):
     var start: Int
     var end: Int
     var step: Int
@@ -161,11 +179,22 @@ struct _StridedRange(Sized):
 
     @always_inline("nodebug")
     fn __len__(self) -> Int:
-        return _div_ceil_positive(_abs(self.start - self.end), _abs(self.step))
+        # FIXME(#38392)
+        # if (self.step > 0) == (self.start > self.end):
+        #     return 0
+        return _div_ceil_positive(abs(self.start - self.end), abs(self.step))
 
     @always_inline("nodebug")
     fn __getitem__(self, idx: Int) -> Int:
-        return self.start + idx * self.step
+        return self.start + index(idx) * self.step
+
+    @always_inline("nodebug")
+    fn __reversed__(self) -> _StridedRange:
+        var shifted_end = self.end - _sign(self.step)
+        var start = shifted_end - ((shifted_end - self.start) % self.step)
+        var end = self.start - self.step
+        var step = -self.step
+        return range(start, end, step)
 
 
 @always_inline("nodebug")
@@ -215,9 +244,7 @@ fn range[t0: Intable, t1: Intable](start: t0, end: t1) -> _SequentialRange:
     Returns:
         The constructed range.
     """
-    var s = int(start)
-    var e = int(end)
-    return _SequentialRange(s, e)
+    return _SequentialRange(int(start), int(end))
 
 
 @always_inline("nodebug")
@@ -237,9 +264,7 @@ fn range[
     Returns:
         The constructed range.
     """
-    var s = int(start)
-    var e = int(end)
-    return _SequentialRange(s, e)
+    return _SequentialRange(int(start), int(end))
 
 
 @always_inline

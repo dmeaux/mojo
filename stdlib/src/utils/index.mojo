@@ -16,12 +16,12 @@ indices.
 You can import these APIs from the `utils` package. For example:
 
 ```mojo
-from utils.index import StaticIntTuple
+from utils import StaticIntTuple
 ```
 """
 
-from builtin.io import _get_dtype_printf_format
-from builtin.string import _calc_initial_buffer_size, _vec_fmt
+from builtin.io import _get_dtype_printf_format, _snprintf
+from builtin.string import _calc_initial_buffer_size
 
 from . import unroll
 from .static_tuple import StaticTuple
@@ -130,7 +130,7 @@ fn _int_tuple_compare[
     fn do_compare[idx: Int]():
         var a_elem: Int = a.__getitem__[idx]()
         var b_elem: Int = b.__getitem__[idx]()
-        c.__setitem__[idx](comp_fn(a_elem, b_elem).value)
+        c.__setitem__[idx](comp_fn(a_elem, b_elem)._as_scalar_bool())
 
     unroll[do_compare, size]()
 
@@ -180,7 +180,7 @@ fn _bool_tuple_reduce[
 
 @value
 @register_passable("trivial")
-struct StaticIntTuple[size: Int](Sized, Stringable, EqualityComparable):
+struct StaticIntTuple[size: Int](Sized, Stringable, Comparable):
     """A base struct that implements size agnostic index functions.
 
     Parameters:
@@ -191,36 +191,26 @@ struct StaticIntTuple[size: Int](Sized, Stringable, EqualityComparable):
     """The underlying storage of the tuple value."""
 
     @always_inline
-    fn __init__() -> Self:
-        """Constructs a static int tuple of the given size.
-
-        Returns:
-            The constructed tuple.
-        """
-        return 0
+    fn __init__(inout self):
+        """Constructs a static int tuple of the given size."""
+        self = 0
 
     @always_inline
-    fn __init__(value: __mlir_type.index) -> Self:
+    fn __init__(inout self, value: __mlir_type.index):
         """Constructs a sized 1 static int tuple of given the element value.
 
         Args:
             value: The initial value.
-
-        Returns:
-            The constructed tuple.
         """
         constrained[size == 1]()
-        return Int(value)
+        self = Int(value)
 
     @always_inline
-    fn __init__(elems: Tuple[Int, Int]) -> Self:
+    fn __init__(inout self, elems: (Int, Int)):
         """Constructs a static int tuple given a tuple of integers.
 
         Args:
             elems: The tuple to copy from.
-
-        Returns:
-            The constructed tuple.
         """
 
         var num_elements = len(elems)
@@ -234,21 +224,20 @@ struct StaticIntTuple[size: Int](Sized, Stringable, EqualityComparable):
 
         @parameter
         fn fill[idx: Int]():
-            tup[idx] = elems.get[idx, Int]()
+            tup[idx] = rebind[Reference[Int, False, __lifetime_of(elems)]](
+                Reference(elems[idx])
+            )[]
 
         unroll[fill, 2]()
 
-        return tup
+        self = tup
 
     @always_inline
-    fn __init__(elems: Tuple[Int, Int, Int]) -> Self:
+    fn __init__(inout self, elems: (Int, Int, Int)):
         """Constructs a static int tuple given a tuple of integers.
 
         Args:
             elems: The tuple to copy from.
-
-        Returns:
-            The constructed tuple.
         """
 
         var num_elements = len(elems)
@@ -262,21 +251,20 @@ struct StaticIntTuple[size: Int](Sized, Stringable, EqualityComparable):
 
         @parameter
         fn fill[idx: Int]():
-            tup[idx] = elems.get[idx, Int]()
+            tup[idx] = rebind[Reference[Int, False, __lifetime_of(elems)]](
+                Reference(elems[idx])
+            )[]
 
         unroll[fill, 3]()
 
-        return tup
+        self = tup
 
     @always_inline
-    fn __init__(elems: Tuple[Int, Int, Int, Int]) -> Self:
+    fn __init__(inout self, elems: (Int, Int, Int, Int)):
         """Constructs a static int tuple given a tuple of integers.
 
         Args:
             elems: The tuple to copy from.
-
-        Returns:
-            The constructed tuple.
         """
 
         var num_elements = len(elems)
@@ -290,21 +278,20 @@ struct StaticIntTuple[size: Int](Sized, Stringable, EqualityComparable):
 
         @parameter
         fn fill[idx: Int]():
-            tup[idx] = elems.get[idx, Int]()
+            tup[idx] = rebind[Reference[Int, False, __lifetime_of(elems)]](
+                Reference(elems[idx])
+            )[]
 
         unroll[fill, 4]()
 
-        return tup
+        self = tup
 
     @always_inline
-    fn __init__(*elems: Int) -> Self:
+    fn __init__(inout self, *elems: Int):
         """Constructs a static int tuple given a set of arguments.
 
         Args:
             elems: The elements to construct the tuple.
-
-        Returns:
-            The constructed tuple.
         """
 
         var num_elements = len(elems)
@@ -316,41 +303,33 @@ struct StaticIntTuple[size: Int](Sized, Stringable, EqualityComparable):
 
         var tup = Self()
 
-        @unroll
+        @parameter
         for idx in range(size):
             tup[idx] = elems[idx]
 
-        return tup
+        self = tup
 
     @always_inline
-    fn __init__(elem: Int) -> Self:
+    fn __init__(inout self, elem: Int):
         """Constructs a static int tuple given a set of arguments.
 
         Args:
             elem: The elem to splat into the tuple.
-
-        Returns:
-            The constructed tuple.
         """
 
-        return StaticIntTuple[size] {
-            data: __mlir_op.`pop.array.repeat`[
-                _type = __mlir_type[`!pop.array<`, size.value, `, `, Int, `>`]
-            ](elem)
-        }
+        self.data = __mlir_op.`pop.array.repeat`[
+            _type = __mlir_type[`!pop.array<`, size.value, `, `, Int, `>`]
+        ](elem)
 
     @always_inline
-    fn __init__(values: VariadicList[Int]) -> Self:
+    fn __init__(inout self, values: VariadicList[Int]):
         """Creates a tuple constant using the specified values.
 
         Args:
             values: The list of values.
-
-        Returns:
-            A tuple with the values filled in.
         """
         constrained[size > 0]()
-        return Self {data: values}
+        self.data = values
 
     @always_inline("nodebug")
     fn __len__(self) -> Int:
@@ -362,19 +341,16 @@ struct StaticIntTuple[size: Int](Sized, Stringable, EqualityComparable):
         return size
 
     @always_inline("nodebug")
-    fn __getitem__[intable: Intable](self, index: intable) -> Int:
+    fn __getitem__(self, idx: Int) -> Int:
         """Gets an element from the tuple by index.
 
-        Parameters:
-            intable: The intable type.
-
         Args:
-            index: The element index.
+            idx: The element index.
 
         Returns:
             The tuple element value.
         """
-        return self.data[index]
+        return self.data[idx]
 
     @always_inline("nodebug")
     fn __setitem__[index: Int](inout self, val: Int):
@@ -389,17 +365,14 @@ struct StaticIntTuple[size: Int](Sized, Stringable, EqualityComparable):
         self.data.__setitem__[index](val)
 
     @always_inline("nodebug")
-    fn __setitem__[intable: Intable](inout self, index: intable, val: Int):
+    fn __setitem__(inout self, idx: Int, val: Int):
         """Sets an element in the tuple at the given index.
 
-        Parameters:
-            intable: The intable type.
-
         Args:
-            index: The element index.
+            idx: The element index.
             val: The value to store.
         """
-        self.data[index] = val
+        self.data[idx] = val
 
     @always_inline("nodebug")
     fn as_tuple(self) -> StaticTuple[Int, size]:
@@ -419,7 +392,7 @@ struct StaticIntTuple[size: Int](Sized, Stringable, EqualityComparable):
         """
         var length: Int = 1
 
-        @unroll
+        @parameter
         for i in range(size):
             length *= self[i]
 
@@ -483,11 +456,11 @@ struct StaticIntTuple[size: Int](Sized, Stringable, EqualityComparable):
         }
 
     @always_inline
-    fn __floordiv__(self, rhs: StaticIntTuple[size]) -> StaticIntTuple[size]:
+    fn __floordiv__(self, rhs: Self) -> Self:
         """Performs element-wise integer floor division.
 
         Args:
-            rhs: Right hand side operand.
+            rhs: The elementwise divisor.
 
         Returns:
             The resulting index tuple.
@@ -500,6 +473,18 @@ struct StaticIntTuple[size: Int](Sized, Stringable, EqualityComparable):
         return Self {
             data: _int_tuple_binary_apply[size, apply_fn](self.data, rhs.data)
         }
+
+    @always_inline
+    fn __rfloordiv__(self, rhs: Self) -> Self:
+        """Floor divides rhs by this object.
+
+        Args:
+            rhs: The value to elementwise divide by self.
+
+        Returns:
+            The resulting index tuple.
+        """
+        return rhs // self
 
     @always_inline
     fn remu(self, rhs: StaticIntTuple[size]) -> StaticIntTuple[size]:
@@ -667,25 +652,22 @@ struct StaticIntTuple[size: Int](Sized, Stringable, EqualityComparable):
         buf.reserve(initial_buffer_size)
 
         # Print an opening `(`.
-        buf.size += _vec_fmt(buf.data, 2, "(")
+        buf.size += _snprintf["("](buf.data, 2)
         for i in range(size):
             # Print separators between each element.
             if i != 0:
-                buf.size += _vec_fmt(buf.data + buf.size, 3, ", ")
-            buf.size += _vec_fmt(
-                buf.data + buf.size,
-                _calc_initial_buffer_size(self[i]),
-                _get_dtype_printf_format[DType.index](),
-                self[i],
+                buf.size += _snprintf[", "](buf.data + buf.size, 3)
+            buf.size += _snprintf[_get_dtype_printf_format[DType.index]()](
+                buf.data + buf.size, _calc_initial_buffer_size(self[i]), self[i]
             )
         # Single element tuples should be printed with a trailing comma.
         if size == 1:
-            buf.size += _vec_fmt(buf.data + buf.size, 2, ",")
+            buf.size += _snprintf[","](buf.data + buf.size, 2)
         # Print a closing `)`.
-        buf.size += _vec_fmt(buf.data + buf.size, 2, ")")
+        buf.size += _snprintf[")"](buf.data + buf.size, 2)
 
         buf.size += 1  # for the null terminator.
-        return buf ^
+        return buf^
 
 
 # ===----------------------------------------------------------------------===#
@@ -739,7 +721,7 @@ fn Index[
     Args:
         x: The 1st initial value.
         y: The 2nd initial value.
-        z: The 3nd initial value.
+        z: The 3rd initial value.
 
     Returns:
         The constructed StaticIntTuple.
@@ -762,7 +744,7 @@ fn Index[
     Args:
         x: The 1st initial value.
         y: The 2nd initial value.
-        z: The 3nd initial value.
+        z: The 3rd initial value.
         w: The 4th initial value.
 
     Returns:
@@ -787,7 +769,7 @@ fn Index[
     Args:
         x: The 1st initial value.
         y: The 2nd initial value.
-        z: The 3nd initial value.
+        z: The 3rd initial value.
         w: The 4th initial value.
         v: The 5th initial value.
 

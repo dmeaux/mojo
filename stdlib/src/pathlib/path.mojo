@@ -15,7 +15,7 @@
 
 import os
 from os import PathLike, listdir, stat_result
-from sys.info import os_is_windows
+from sys import os_is_windows
 
 from memory import stack_allocation
 
@@ -76,8 +76,9 @@ struct Path(Stringable, CollectionElement, PathLike, KeyElement):
         Args:
             existing: The existing Path.
         """
-        self.path = existing.path ^
+        self.path = existing.path^
 
+    @always_inline
     fn __copyinit__(inout self, existing: Self):
         """Copy constructor for the path struct.
 
@@ -132,19 +133,21 @@ struct Path(Stringable, CollectionElement, PathLike, KeyElement):
         else:
             self.path += DIR_SEPARATOR + suffix
 
+    @always_inline
     fn __str__(self) -> String:
         """Returns a string representation of the path.
 
         Returns:
-          A string represntation of the path.
+          A string representation of the path.
         """
         return self.path
 
+    @always_inline
     fn __fspath__(self) -> String:
         """Returns a string representation of the path.
 
         Returns:
-          A string represntation of the path.
+          A string representation of the path.
         """
         return str(self)
 
@@ -152,7 +155,7 @@ struct Path(Stringable, CollectionElement, PathLike, KeyElement):
         """Returns a printable representation of the path.
 
         Returns:
-          A printable represntation of the path.
+          A printable representation of the path.
         """
         return str(self)
 
@@ -165,7 +168,7 @@ struct Path(Stringable, CollectionElement, PathLike, KeyElement):
         Returns:
           True if the paths are equal and False otherwise.
         """
-        return self.__str__() == other.__str__()
+        return str(self) == str(other)
 
     fn __ne__(self, other: Self) -> Bool:
         """Returns True if the two paths are not equal.
@@ -205,6 +208,7 @@ struct Path(Stringable, CollectionElement, PathLike, KeyElement):
         """
         return os.lstat(self)
 
+    @always_inline
     fn exists(self) -> Bool:
         """Returns True if the path exists and False otherwise.
 
@@ -240,7 +244,7 @@ struct Path(Stringable, CollectionElement, PathLike, KeyElement):
         with open(self, "r") as f:
             return f.read()
 
-    fn read_bytes(self) raises -> List[Int8]:
+    fn read_bytes(self) raises -> List[UInt8]:
         """Returns content of the file as bytes.
 
         Returns:
@@ -286,7 +290,7 @@ struct Path(Stringable, CollectionElement, PathLike, KeyElement):
             pathsegments: The path segments.
 
         Returns:
-            The path concatination with the pathsegments using the
+            The path concatenation with the pathsegments using the
             directory separator.
         """
         if len(pathsegments) == 0:
@@ -303,7 +307,7 @@ struct Path(Stringable, CollectionElement, PathLike, KeyElement):
         """Gets the list of entries contained in the path provided.
 
         Returns:
-          Returns the list of entries in the path provided.
+            The list of entries in the path provided.
         """
 
         var ls = listdir(self)
