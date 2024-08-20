@@ -22,7 +22,7 @@
 
 FROM ubuntu:22.04
 
-ARG DEFAULT_TZ=America/Los_Angeles
+ARG DEFAULT_TZ=Europe/Paris
 ENV DEFAULT_TZ=$DEFAULT_TZ
 
 RUN apt-get update \
